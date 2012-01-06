@@ -2,6 +2,8 @@
 
 from geo import Point
 from fault import *
+from fmd import *
+from msr import *
 
 if __name__=='__main__':
 	
@@ -35,10 +37,28 @@ if __name__=='__main__':
 
 	fault_surface = SimpleFaultSurface(fault_trace,upper_seismo_depth,lower_seismo_depth,dip)
 
-	surface = fault_surface.getFaultSurface(mesh_spacing)
+	surface = fault_surface.surface
 	num_rows = surface.shape[0]
 	num_cols = surface.shape[1]
 	for i in range(num_rows):
 		for j in range(num_cols):
 			print surface[i,j].longitude, surface[i,j].latitude, surface[i,j].depth
 		print '\n'
+		
+	a_value = 2.0
+	b_value = 1.0
+	min_mag = 5.0
+	max_mag = 6.0
+	bin_width = 0.1
+	freq_mag_dist = TruncatedGutenbergRichter(a_value,b_value,min_mag,max_mag,bin_width)
+	freq_mag_dist.printAnnualOccurrenceRates()
+	
+	mag_scal_rel = PeerTestMagAreaScalingRel()
+	
+	rake = 0.0
+	
+	rupt_aspect_ratio = 2.0
+	
+	fault_source = PoissonianFaultSource(fault_surface,freq_mag_dist,mag_scal_rel,rake,rupt_aspect_ratio)
+	
+	print fault_source.getNumRuptures()
