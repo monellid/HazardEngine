@@ -1,80 +1,76 @@
 from math import *
-from location import Location
-
-class FaultTrace:
-	"""
-	Class defining Fault Trace (2D line representing fault surface intersection with Earth surface).
-	"""
-	
-	def __init__(self,location_list):
-		"""
-		Defines fault trace as list of locations (at the Earth surface).
-		"""
-		# TODO: check that there are at least two locations
-		# TODO: check that all locations have depth = 0
-		# TODO: check that that the fault trace line does not intersect itself
-		self.location_list = location_list
-		
-	def getStrikeFromFirstAndLastPoints(self):
-		"""
-		Computes strike angle (in degrees) as the azimuth from the
-		first and last points of the fault trace.
-		"""
-		return self.location_list[0].getAzimuth(self.location_list[-1])
-		
-	def getResampledTrace(self,section_length):
-		"""
-		Resample fault trace into sections with length equal to 
-		section_length.
-		"""
-		num_points = len(self.location_list)
-		for i in range(num_points-1):
-			distance = self.location_list[i].getDistance(self.location_list[i+1])
-			# compute number of sections
-			num_sections
+from geo import *
+import numpy
 		
 class SimpleFaultSurface:
 	"""
-	Class defining Simple Fault Surface (as a 3D mesh of locations).
+	Class defining Simple Fault Surface.
 	"""
 	
 	def __init__(self,fault_trace,upper_seismo_depth,lower_seismo_depth,dip):
 		"""
-		fault_trace: fault trace (FaultTrace)
-		upper_seismo_depth: upper seismogenic depth (in km)
-		lower_seismo_depth: lower seismogenic depth (in km)
+		fault_trace: list of points representing intersection between fault surface and Earth surface
+		upper_seismo_depth: upper seismogenic depth (i.e. depth of fault's top edge, in km)
+		lower_seismo_depth: lower seismogenic depth (i.e. depth of fault's bottom edge, in km)
 		dip: dip angle (in degrees)
 		"""
+		# TODO: check that all points in fault_trace have depth = 0
 		# TODO: check upper_seismo_depth >= lower_seismo_depth >= 0
-		# TODO: check dip >=0 && dip <=90
+		# TODO: check dip >0 && dip <=90
 		self.fault_trace = fault_trace
 		self.upper_seismo_depth = upper_seismo_depth
 		self.lower_seismo_depth = lower_seismo_depth
 		self.dip = dip
 		
-	def getFaultSurface(mesh_spacing):
+	def getFaultSurface(self,mesh_spacing = 1):
 		"""
-		Compute 3D mesh representing fault surface. The mesh is
-		constructed by translating the fault trace
-		along the dip angle, on a direction perpendicular to
-		the fault trace strike (computed considering the first
-		and last locations).
-		Distance between mesh points is given by the mesh_spacing
-		parameter (in km).
+		Computes 3D mesh representing fault surface. The mesh is constructed by 
+		translating the fault trace along the dip angle, along a direction perpendicular
+		to the fault trace strike (computed considering the first and last points in the fault trace).
+		Distance between mesh points is given by the mesh_spacing parameter (in km).
+		Default value is 1 km (the error in reproducing the fault length and width
+		is at most 1 km)
 		"""		
-		# compute fault strike considering first and last points
-		fault_strike = self.fault_trace.getStrikeFromFirstAndLastPoints()
+		top_edge = self.getFaultTopEdge(mesh_spacing)
 		
-		# compute fault top edge coordinates by translating the
-		# fault trace from the Earth surface to the upper seismogenic depth
-		# in a direction perpendicular to the fault strike
-		fault_top_edge = []
+		# compute mesh points. Loops over points in the top edge, for each point
+		# on the top edge compute corresponding point on the bottom edge, then
+		# computes equally spaced points between top and bottom points
+		vertical_distance = (self.lower_seismo_depth - self.upper_seismo_depth)
+		horizontal_distance = vertical_distance / tan(radians(self.dip))
+		strike = self.fault_trace[0].getAzimuth(self.fault_trace[-1])
+		azimuth = strike + 90.0
+		mesh_points = []
+		for point in top_edge:
+			bottom_point = point.getPoint(horizontal_distance,vertical_distance,azimuth)
+			points = point.getEquallySpacedPoints(bottom_point,mesh_spacing)
+			mesh_points.extend(points)
+		
+		# organize mesh points into a 2D numpy array
+		# number of rows corresponds to number of points along dip
+		# number of columns corresponds to number of points along strike
+		surface = numpy.array(mesh_points)
+		surface = surface.reshape(len(top_edge),len(mesh_points)/len(top_edge))
+		surface = numpy.transpose(surface)
+		return surface
+		
+	def getFaultTopEdge(self,mesh_spacing):
+		"""
+		Computes fault top edge coordinates by translating the fault trace along dip
+		from the Earth surface to the upper seismogenic depth in a direction 
+		perpendicular to the fault strike (computed considering the first and last points).
+		Points' coordinates are then recomputed so that points are equally spaced
+		(with spacing equal to mesh_spacing).
+		"""
+		top_edge = []
+		
 		if self.dip < 90.0:
 			horizontal_distance = self.upper_seismo_depth / atan(radians(self.dip))
 		else:
 			horizontal_distance = 0.0
-		azimuth = fault_strike + 90.0
-		for loc in self.fault_trace.location_list:
-			fault_top_edge.append(loc.getLocation(horizontal_distance,self.upper_seismo_depth,azimuth))
-			
-		# resample fault trace into sections with length equal to mesh_spacing
+		vertical_distance = self.upper_seismo_depth
+		strike = self.fault_trace[0].getAzimuth(self.fault_trace[-1])
+		azimuth = strike + 90.0
+		for point in self.fault_trace:
+			top_edge.append(point.getPoint(horizontal_distance,vertical_distance,azimuth))
+		return Line(top_edge).getResampledLine(mesh_spacing).point_list
