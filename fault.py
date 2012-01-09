@@ -1,5 +1,6 @@
 from math import *
 from geo import *
+from rup import *
 import numpy
 		
 class SimpleFaultSurface:
@@ -86,34 +87,47 @@ class PoissonianFaultSource:
 	ruptures having Poissonian probability of occurrence.
 	"""
 	
-	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio):
+	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span):
 		"""
 		fault_surf: fault surface
 		freq_mag_dist: frequency magnitude distribution
 		mag_scaling_rel: magnitude scaling relationship
 		rake: rake angle
 		rup_aspect_ratio: rupture aspect ratio
+		tectonic_region_type: tectonic region type
+		time_span: time span
 		"""
 		self.fault_surf = fault_surf
 		self.freq_mag_dist = freq_mag_dist
 		self.mag_scaling_rel = mag_scaling_rel
 		self.rake = rake
 		self.rup_aspect_ratio = rup_aspect_ratio
+		self.tectonic_region_type = tectonic_region_type
+		self.time_span = time_span
+		self.rupture_data = self.getRuptureData()
 		
-	def getNumRuptures(self):
+	def getRuptureData(self):
 		"""
-		Count number of ruptures. Loop over magnitude values in the
-		frequency magnitude distribution. For each magnitude, computes
-		rupture's dimensions (length and width). Based on rupture's
-		dimensions and rupture offset (assumed equal to surface mesh spacing), 
-		computes how many ruptures can be placed on the fault surface. 
+		Return list containing rupture data. The length of the list
+		corresponds to the number of ruptures. Each entry in the list
+		is a dictionary with the following keys:
+		- 'mag': rupture magnitude
+		- 'rate': rupture annual occurrence rate
+		- 'first': tuple (i,j) containing indexes of rupture's first mesh point
+		- 'last_length': tuple (i,j) containing indexes of rupture's last mesh point along length
+		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
 		"""
-		num_ruptures = 0.0
+		rupture_data = []
 		
-		fault_length = (self.fault_surf.surface.shape[1] - 1) * self.fault_surf.mesh_spacing
-		fault_width = (self.fault_surf.surface.shape[0] - 1) * self.fault_surf.mesh_spacing
-		num_mesh_points = self.fault_surf.surface.shape[0] * self.fault_surf.surface.shape[1]
-		
+		# Loop over magnitude values in the frequency magnitude distribution.
+		# For each magnitude, computes rupture's dimensions (length and width).
+		# Based on rupture's dimensions and rupture's offset (assumed equal
+		# to surface mesh spacing), computes rupture's first and last point
+		# indexes.
+		num_points_along_length = self.fault_surf.surface.shape[1]
+		num_points_along_width = self.fault_surf.surface.shape[0]
+		fault_length = (num_points_along_length - 1) * self.fault_surf.mesh_spacing
+		fault_width = (num_points_along_width - 1) * self.fault_surf.mesh_spacing
 		occurrence_rates = self.freq_mag_dist.getAnnualOccurrenceRates()
 		for mag,rate in occurrence_rates:
 			
@@ -121,10 +135,6 @@ class PoissonianFaultSource:
 			area = self.mag_scaling_rel.getMedianArea(mag)
 			rup_length = sqrt(area * self.rup_aspect_ratio)
 			rup_width = area / rup_length
-			
-			# round rupture dimensions with respect to mesh_spacing
-			rup_length = round(rup_length / self.fault_surf.mesh_spacing) * self.fault_surf.mesh_spacing
-			rup_width = round(rup_width / self.fault_surf.mesh_spacing) * self.fault_surf.mesh_spacing
 			
 			# reshape rupture (conserving area) if its length or width
 			# exceeds fault's lenght or width
@@ -134,22 +144,68 @@ class PoissonianFaultSource:
 			elif rup_length > fault_length and rup_width < fault_width:
 				rup_width = rup_width * (rup_length / fault_length)
 				rup_length = fault_length
-			
+				
 			# clip rupture's length and width to
 			# fault's length and width if both rupture
-			# dimensions are greater than fault dimensions
-			if rup_length > fault_length and rup_width > fault_width:
+			# dimensions are greater or equal than fault dimensions
+			if rup_length >= fault_length and rup_width >= fault_width:
 				rup_length = fault_length
 				rup_width = fault_width
 			
+			# round rupture dimensions with respect to mesh_spacing and compute number
+			# of points in the rupture along length and strike
+			rup_length = round(rup_length / self.fault_surf.mesh_spacing) * self.fault_surf.mesh_spacing
+			rup_width = round(rup_width / self.fault_surf.mesh_spacing) * self.fault_surf.mesh_spacing
+			num_rup_points_along_length = int(rup_length / self.fault_surf.mesh_spacing) + 1
+			num_rup_points_along_width = int(rup_width / self.fault_surf.mesh_spacing) + 1
+							
+			# based on rupture dimensions, compute number of ruptures along length and width
+			# for each rupture compute first and last points
 			if rup_length < self.fault_surf.mesh_spacing and rup_width < self.fault_surf.mesh_spacing:
-				num_ruptures = num_ruptures + num_mesh_points
-			elif rup_length >= fault_length and rup_width >= fault_width:
-				num_ruptures = num_ruptures + 1
+				num_rup_along_length = num_points_along_length
+				num_rup_along_width = num_points_along_width					
+			elif rup_length == fault_length and rup_width == fault_width:
+				num_rup_along_length = 1
+				num_rup_along_width = 1
 			else:
-				# computes number of ruptures along length and along width
-				num_rup_along_length = int((fault_length - rup_length) / self.fault_surf.mesh_spacing + 1)
-				num_rup_along_width = int((fault_width - rup_width) / self.fault_surf.mesh_spacing + 1)
-				num_ruptures = num_ruptures + num_rup_along_length * num_rup_along_width
+				num_rup_along_length = int(fault_length - rup_length) / self.fault_surf.mesh_spacing + 1
+				num_rup_along_width = int(fault_width - rup_width) / self.fault_surf.mesh_spacing + 1
+			num_rup = num_rup_along_length * num_rup_along_width
+			for i in range(num_rup_along_width):
+				for j in range(num_rup_along_length):
+					first_point = (i,j)
+					last_point_along_length = (i,j + num_rup_points_along_length - 1)
+					last_point_along_width = (i + num_rup_points_along_width - 1, j)
+					data = {'mag':mag,
+							'rate':rate / num_rup,
+							'first':first_point,
+							'last_length':last_point_along_length,
+							'last_width':last_point_along_width}
+					rupture_data.append(data)
+		return rupture_data
+					
+	def getNumRuptures(self):
+		"""
+		Return number of ruptures.
+		"""
+		return len(self.rupture_data)
 		
-		return num_ruptures
+	def getRupture(self,rupt_index):
+		"""
+		Return ProbEqkRupture corresponding to rupt_index.
+		"""
+		mag = self.rupture_data[rupt_index]['mag']
+		rate = self.rupture_data[rupt_index]['rate']
+		
+		first = self.rupture_data[rupt_index]['first']
+		last_length = self.rupture_data[rupt_index]['last_length']
+		last_width = self.rupture_data[rupt_index]['last_width']
+		rup_surf_mesh = self.fault_surf.surface[first[0]:last_width[0]+1,first[1]:last_length[1]+1]
+		
+		#TODO: set hypocenter location as middle point of the rupture surface
+		hypocenter = None
+		
+		# Poissonian probability of one or more occurrences
+		probability_occurrence = 1 - exp(-rate * self.time_span)
+		
+		return ProbEqkRupture(mag,rup_surf_mesh,hypocenter,self.rake,self.tectonic_region_type,probability_occurrence)

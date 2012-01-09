@@ -59,6 +59,21 @@ if __name__=='__main__':
 	
 	rupt_aspect_ratio = 2.0
 	
-	fault_source = PoissonianFaultSource(fault_surface,freq_mag_dist,mag_scal_rel,rake,rupt_aspect_ratio)
+	tectonic_region_type = 'ActiveShallowCrust'
+	time_span = 50.0
+	
+	fault_source = PoissonianFaultSource(fault_surface,freq_mag_dist,mag_scal_rel,rake,rupt_aspect_ratio,tectonic_region_type,time_span)
 	
 	print fault_source.getNumRuptures()
+	
+	for i in range(1000,1001):
+		prob_eqk_rup = fault_source.getRupture(i)
+		print 'magnitude: ',prob_eqk_rup.magnitude
+		print 'probability of occurrence: ',prob_eqk_rup.probability_occurrence
+		rup_surf = prob_eqk_rup.rupture_surface
+		num_rows = rup_surf.shape[0]
+		num_cols = rup_surf.shape[1]
+		for i in range(num_rows):
+			for j in range(num_cols):
+				print rup_surf[i,j].longitude, rup_surf[i,j].latitude, rup_surf[i,j].depth
+			print '\n'
