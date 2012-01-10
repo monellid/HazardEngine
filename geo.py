@@ -66,7 +66,7 @@ class Point:
 		"""
 		points = []
 		points.append(self)
-		
+
 		total_distance = self.getDistance(point)		
 		horizontal_distance = self.getHorizontalDistance(point)
 		azimuth = self.getAzimuth(point)
@@ -78,7 +78,8 @@ class Point:
 			sign = 1
 		vertical_increment = sign * distance * cos(bearing_angle)
 		horizontal_increment = distance * sin(bearing_angle)
-		number_locations = int(total_distance / distance) + 1
+
+		number_locations = int(round(total_distance / distance) + 1)
 		for i in range(1,number_locations):
 			p = points[-1]
 			points.append(p.getPoint(horizontal_increment,vertical_increment,azimuth))

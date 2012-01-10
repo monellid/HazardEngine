@@ -1,3 +1,6 @@
+from pyproj import Geod
+import numpy
+
 class ProbEqkRupture:
 	"""
 	Class defining probabilistic earthquake rupture.
@@ -18,3 +21,21 @@ class ProbEqkRupture:
 		self.rake = rake
 		self.tectonic_region_type = tectonic_region_type
 		self.probability_occurrence = probability_occurrence
+		
+	def getShortestDistance(self,point):
+		"""
+		Compute shortest distance (in km) between point and rupture.
+		The shortest distance is defined as the minimum
+		distance between the given point and the points
+		constituting the rupture surface mesh.
+		"""
+		g = Geod(ellps="sphere")
+		point_list = self.rupture_surface.ravel()
+		lons_rup = numpy.array([point_list[i].longitude for i in range(len(point_list))])
+		lats_rup = numpy.array([point_list[i].latitude for i in range(len(point_list))])
+		lons_point = numpy.array([point.longitude for i in range(len(point_list))])
+		lats_point = numpy.array([point.latitude for i in range(len(point_list))])
+		fwd_azs,back_azs,hor_dists = g.inv(lons_point,lats_point,lons_rup,lats_rup)
+		vert_dists = numpy.array([(point.depth - point_list[i].depth) for i in range(len(point_list))])
+		dists = numpy.sqrt(hor_dists**2 + vert_dists**2)
+		return min(dists) * 1e-3

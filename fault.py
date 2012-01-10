@@ -78,8 +78,7 @@ class SimpleFaultSurface:
 			top_edge.append(point.getPoint(horizontal_distance,vertical_distance,azimuth))
 			
 		top_edge = Line(top_edge).getResampledLine(self.mesh_spacing).point_list
-		top_edge.append(top_edge[-1].getPoint(self.mesh_spacing,0.0,top_edge[-2].getAzimuth(top_edge[-1]))) # this to get exact match with opensha
-		return top_edge#Line(top_edge).getResampledLine(self.mesh_spacing).point_list
+		return top_edge
 		
 class PoissonianFaultSource:
 	"""
@@ -209,3 +208,12 @@ class PoissonianFaultSource:
 		probability_occurrence = 1 - exp(-rate * self.time_span)
 		
 		return ProbEqkRupture(mag,rup_surf_mesh,hypocenter,self.rake,self.tectonic_region_type,probability_occurrence)
+		
+	def getMinimumDistance(self,point):
+		"""
+		Compute minimum (horizontal) distance between source and given point.
+		The minimum distance is defined as the minimum great circle
+		distance between the given point and the surface projection of the
+		points constituting the fault surface boundary.
+		"""
+		# TODO: implements it!!
