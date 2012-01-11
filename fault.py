@@ -68,7 +68,7 @@ class SimpleFaultSurface:
 		top_edge = []
 		
 		if self.dip < 90.0:
-			horizontal_distance = self.upper_seismo_depth / atan(radians(self.dip))
+			horizontal_distance = self.upper_seismo_depth / tan(radians(self.dip))
 		else:
 			horizontal_distance = 0.0
 		vertical_distance = self.upper_seismo_depth
@@ -76,7 +76,7 @@ class SimpleFaultSurface:
 		azimuth = strike + 90.0
 		for point in self.fault_trace:
 			top_edge.append(point.getPoint(horizontal_distance,vertical_distance,azimuth))
-			
+
 		top_edge = Line(top_edge).getResampledLine(self.mesh_spacing).point_list
 		return top_edge
 		
