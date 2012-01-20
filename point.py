@@ -147,6 +147,9 @@ class PoissonianPointSource:
 		self.lower_seismo_depth = lower_seismo_depth
 		self.mag_scaling_rel = mag_scaling_rel
 		self.rupt_aspect_ratio = rupt_aspect_ratio
+		self.tectonic_region_type = tectonic_region_type
+		self.time_span = time_span
+		self.mesh_spacing = mesh_spacing
 		
 		def getNumRuptures(self):
 			"""
@@ -163,8 +166,33 @@ class PoissonianPointSource:
 			Returns rupture for
 			index rupt_index.
 			"""
+			mag_index, nodal_plane_index, hypo_depth_index = __getMagNodalPlaneHypoDepthIndexes(self,rup_index)
+			
 			occurrence_rates = self.freq_mag_dist.getAnnualOccurrenceRates()
-			num_mags = len(occurrence_rates)
+			magnitude = occurrence_rates[mag_index][0]
+			occurrence_rate = occurrence_rates[mag_index][1] * self.nodal_plane_pmf[nodal_plane_index][3] * self.hypo_depth_pmf[hypo_depth_index][1]
+			probability_occurrence = 1 - exp(-occurrence_rate * time_span)
+
+			hypocenter = Point(self.point.longitude,self.point.latitude,self.hypo_depth_pmf[hypo_depth_index][0])
+			
+			strike = self.nodal_plane_pmf[nodal_plane_index][0]
+			dip = self.nodal_plane_pmf[nodal_plane_index][1]
+			rake = self.nodal_plane_pmf[nodal_plane_index][2]
+			
+			rup_length, rup_width = __getRuptureDimensions(self,magnitude)
+			
+			if rup_length < self.mesh_spacing and rup_width < self.mesh_spacing:
+				rupture_surface = numpy.array([hypocenter])
+			else:
+				rup_corners = self.__getRuptureCorners(hypocenter,rup_length,rup_width,strike,dip)
+				rupture_surface = __getRuptureSurface(self,rup_corners)
+				
+			return {'magnitude':magnitude,'strike':strike,'dip':dip,'rake':rake,
+					'hypocenter':hypocenter,'surface':rupture_surface,
+					'rate':occurrence_rate,'probability':probability_occurrence}
+				
+		def __getMagNodalPlaneHypoDepthIndexes(self,rup_index):
+			num_mags = len(self.freq_mag_dist.getAnnualOccurrenceRates())
 			num_nodal_planes = len(self.nodal_plane_pmf)
 			num_hypo_depth = len(self.hypo_depth_pmf)
 			
@@ -172,13 +200,103 @@ class PoissonianPointSource:
 			nodal_plane_index = (rupt_index / num_mag_values) % num_nodal_planes
 			hypo_depth_index = (rupt_index / (num_mag_values * num_nodal_planes)) % num_hypo_depths
 			
-			rupture_hypocenter = Point(self.point.longitude,self.point.latitude,self.hypo_depth_pmf[hypo_depth_index][0])
-			magnitude = occurrence_rates[mag_index][0]
-			strike = self.nodal_plane_pmf[nodal_plane_index][0]
-			dip = self.nodal_plane_pmf[nodal_plane_index][1]
-			rake = self.nodal_plane_pmf[nodal_plane_index][2]
-			occurrence_rate = occurrence_rates[mag_index][1] * self.nodal_plane_pmf[nodal_plane_index][3] * self.hypo_depth_pmf[hypo_depth_index][1]
-			probability_occurrence = 1 - exp(-occurrence_rate * time_span)
-			area = mag_scaling_rel.getMedianArea(magnitude)
-			rup_length = sqrt(area * rup_aspect_ratio)
+			return mag_index, nodal_plane_index, hypo_depth_index
+				
+		def __getRuptureDimensions(self,magnitude):
+			area = self.mag_scaling_rel.getMedianArea(magnitude)
+			rup_length = sqrt(area * self.rup_aspect_ratio)
 			rup_width = area / rup_length
+			return rup_length, rup_width
+				
+		def __getRuptureSurface(self,rup_corners):
+			"""
+			Compute surface mesh from rupture coordinates.
+			"""
+			top_edge = rup_corners[0].getEquallySpacedPoints(rup_corners[1],self.mesh_spacing)
+			bottom_edge = rup_corners[2].getEquallySpacedPoints(rup_corners[3],self.mesh_spacing)
+			mesh_points = []
+			for top,bottom in top_edge,bottom_edge:
+				points = top.getEquallySpacedPoints(bottom,self.mesh_spacing)
+				mesh_points.extend(points)
+			# organize mesh points into a 2D array
+			# number of rows corresponds to number of points along dip
+			# number of columns corresponds to number of points along strike
+			surface = numpy.array(mesh_points)
+			surface = surface.reshape(len(mesh_points)/len(top_edge),len(top_edge))
+			
+			return surface
+			
+				
+		def __getRuptureCorners(self,hypocenter,rup_length,rup_width,strike,dip):
+			"""
+			From rupture's hypocenter, length, width, strike and dip computes rupture's corner coordinates
+			(assuming rupture hypocenter being the rupture surface centroid)
+			"""
+			strike = radians(strike)
+			dip = radians(dip)
+			
+			aspect_ratio = rup_length / rup_width
+			horizontal_distance = sqrt( (rup_width * cos(dip) / 2)**2 + (rup_length / 2)**2 )
+		 	vert_distance = rup_width * sin(dip) / 2
+			# left and right are with respect to rupture hypocenter
+			azimuth_right = degrees(strike - atan( cos(dip) / aspect_ratio ))
+			azimuth_left = degrees(azimuth_right + 180 + 2 * atan( cos(dip) / aspect_ratio ))
+			
+			upper_left = hypocenter.getPoint(horizontal_distance,-vert_distance,azimuth_left)
+			upper_right = hypocenter.getPoint(horizontal_distance,-vert_distance,azimuth_right)
+			lower_left = hypocenter.getPoint(horizontal_distance,+vert_distance,azimuth_left)
+			lower_right = hypocenter.getPoint(horizontal_distance,+vert_distance,azimuth_right)
+			
+			return self.__adjustRuptureCorners([upper_left,upper_right,lower_left,lower_right],strike,dip)
+			
+		def __adjustRuptureCorners(self,rup_corners,strike,dip):
+			"""
+			Adjusts rupture's corners so that rupture fits inside the seismogenic layer.
+			"""
+			# If the rupture's top edge depth is smaller than the upper seismogenic depth or
+			# the rupture's bottom edge depth is larger than the lower seismogenic depth,
+			# shifts the rupture (along the dip direction) downwards or upwards respectively.
+			# if the resulting bottom or top edges goes off of the seismogenic layer, the
+			# rupture is reshaped: rupture width is clipped to the width allowed by the
+			# seismogenic layer thickness, and extended symmetrically along the strike
+			# direction. Reshaping is done so as rupture area is conserved.
+			if rup_corners[0].depth < self.upper_seismo_depth:
+				vertical_increment = self.upper_seismo_depth - rup_corners[0].depth
+				rup_corners = __shiftRuptureCornersAlongDipDirection(rup_corners,vertical_increment,strike,dip)
+				if rup_corners[2].depth > self.lower_seismo_depth:
+					delta_width = (rup_corners[2].depth - lower_seismo_depth) / sin(dip)
+					delta_length = (rup_length * delta_width) / (2 * rup_width)
+					vertical_dist = self.lower_seismo_depth - self.upper_seismo_depth
+					horizontal_dist = vertical_dist / tan(dip)
+					rup_corners[0] = rup_corners[0].getPoint(delta_length,0.0,strike + 180.0)
+					rup_corners[1] = rup_corners[1].getPoint(delta_length,0.0,strike)
+					rup_corners[2] = rup_corners[0].getPoint(horizontal_dist,vertical_dist,strike + 90.0)
+					rup_corners[3] = rup_corners[1].getPoint(horizontal_dist,vertical_dist,strike + 90.0)
+			if rup_corners[2].depth > self.lower_seismo_depth:
+				vertical_increment =  self.lower_seismo_depth - rup_corners[2].depth
+				rup_corners =  __shiftRuptureCornersAlongDipDirection(rup_corners,vertical_increment,strike,dip)
+				if rup_corners[0].depth < upper_seismo_depth:
+					delta_width = (upper_seismo_depth - rup_corners[0].depth) / sin(dip)
+					delta_length = (rup_length * delta_width) / (2 * rup_width)
+					vertical_dist = self.lower_seismo_depth - self.upper_seismo_depth
+					horizontal_dist = vertical_dist / tan(dip)
+					rup_corners[2] = rup_corners[2].getPoint(delta_length,0.0,strike + 180.0)
+					rup_corners[3] = rup_corners[3].getPoint(delta_length,0.0,strike)
+					rup_corners[0] = rup_corners[2].getPoint(horizontal_dist,-vertical_dist,strike + 270.0)
+					rup_corners[1] = rup_corners[3].getPoint(horizontal_dist,-vertical_dist,strike + 270.0)
+					
+		def __shiftRuptureCornersAlongDipDirection(rup_corners,vertical_increment,strike,dip):
+			"""
+			The method assumes the 4 rupture corners to be aligned on a plane with an
+			inclination with respect to the Earth surface equal to dip, and the top and
+			bottom corners to be aligned along the strike direction. That is the 4
+			corners must describe a planar rectangle.
+			If vertical_increment is positive, corners are shifted downwards.
+			If vertical_increment is negative, corners are shifted upwards.
+			"""
+			if vertical_increment > 0:
+				azimuth = strike + 90.0
+			else:
+				azimuth = strike + 90.0 + 180.0
+			horizontal_distance = abs(vertical_increment) / tan(dip)
+			return [point.getPoint(horizontal_distance,vertical_increment,azimuth) for point in rup_corners]
