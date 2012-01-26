@@ -36,6 +36,26 @@ class ProbEqkRupture:
 		lons_point = numpy.array([point.longitude for i in range(len(point_list))])
 		lats_point = numpy.array([point.latitude for i in range(len(point_list))])
 		fwd_azs,back_azs,hor_dists = g.inv(lons_point,lats_point,lons_rup,lats_rup)
-		vert_dists = numpy.array([(point.depth - point_list[i].depth) for i in range(len(point_list))])
+		vert_dists = numpy.array([(point.depth - point_list[i].depth) * 1e3 for i in range(len(point_list))])
 		dists = numpy.sqrt(hor_dists**2 + vert_dists**2)
 		return min(dists) * 1e-3
+		
+	def getJoynerBooreDistance(self,point):
+		"""
+		Compute shortest distance (in km) between point and
+		rupture surface projection. The shortest distance is
+		defined as the minimum distance between the point and
+		and the surface projections of the points constituing
+		the rupture surface mesh.
+		Note that if the point lies inside the surface 
+		projection of the rupture boundary, the distance in zero.
+		"""
+		
+	def getDistanceX(self,point):
+		"""
+		The shortest horizontal distance from a Site to a line 
+		defined by extending the top edge of the rupture to 
+		infinity in both directions. Values on the 
+		hanging-wall are positive and those on the foot-wall 
+		are negative.
+		"""

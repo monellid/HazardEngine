@@ -1,3 +1,5 @@
+from math import *
+
 class TruncatedGutenbergRichter:
 	"""
 	Class defining Truncated Gutenberg-Richter frequency magnitude distribution.
@@ -20,6 +22,17 @@ class TruncatedGutenbergRichter:
 		self.min_mag = min_mag
 		self.max_mag = max_mag
 		self.bin_width = bin_width
+		
+	def getWeightedMfd(self,weight):
+		"""
+		Return new truncated fdm with weighted
+		a value, that is a new fmd with annual
+		occurrence rates scaled by a factor equal
+		to weight.
+		"""
+		# TODO: check weight > 0
+		a_value_new = self.a_value + log10(weight)
+		return TruncatedGutenbergRichter(a_value_new,self.b_value,self.min_mag,self.max_mag,self.bin_width)
 
 	def getAnnualOccurrenceRates(self):
 		"""

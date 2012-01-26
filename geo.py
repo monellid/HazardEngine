@@ -1,5 +1,7 @@
 from pyproj import Geod
 from math import *
+import numpy
+
 
 class Point:
 	"""
@@ -67,7 +69,10 @@ class Point:
 		points = []
 		points.append(self)
 
-		total_distance = self.getDistance(point)		
+		total_distance = self.getDistance(point)
+		if total_distance == 0:
+			return points
+					
 		horizontal_distance = self.getHorizontalDistance(point)
 		azimuth = self.getAzimuth(point)
 		
@@ -114,3 +119,4 @@ class Line:
 			points = resampled_line[-1].getEquallySpacedPoints(self.point_list[i],section_length)
 			resampled_line.extend(points[1:])
 		return Line(resampled_line)
+		

@@ -49,7 +49,10 @@ class PoissonianPointSource:
 		#TODO: check PMFs. probability values must be positive and sum up to 1
 		#TODO: check strike, dip, and rake values (0<=strike<=360, 0<dip<=90,-180<=rake<=180)
 		#TODO: check hypocentral depths. All depths must be positive and greater than 0.
-		#TODO: check lower_seismo_depth>=upper_seismo_depth>=0
+		#TODO: check lower_seismo_depth > upper_seismo_depth>=0
+		# this avoids having a seismogenic layer with thickness equal to 0, and 
+		# having a division by zero in case of ruptures with width greater than
+		# maximum width allowed by the seismogenic layer.
 		#TODO: check minimum(hypocentral depths) >= upper_seismo_depth
 		#TODO: check maximum(hypocentral depths) <= lower_seismo_depth
 		#TODO: check rupt_aspect_ratio > 0
@@ -98,6 +101,7 @@ class PoissonianPointSource:
 		if rup_length < self.mesh_spacing and rup_width < self.mesh_spacing:
 			rup_corners = [hypocenter,hypocenter,hypocenter,hypocenter]
 			rupture_surface = numpy.array([hypocenter])
+			rupture_surface = rupture_surface.reshape(1,1)
 		else:
 			# Case 1: rupture width greater than maximum width allowed by
 			# seismogenic layer thickness
