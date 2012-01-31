@@ -2,6 +2,42 @@ from math import *
 from geo import *
 from rup import *
 import numpy
+
+class ComplexFaultSurface:
+	"""
+	Class defining Complex Fault Surface.
+	"""
+	def __init__(self,fault_top_edge,fault_bottom_edge,mesh_spacing):
+		"""
+		Represents fault surface as 3D mesh of points obtained from:
+		fault_top_edge: list of points representing fault top edge
+		fault_bottom_edge: list of points representing fault bottom edge
+		mesh_spacing: average spacing between grid nodes
+		The class assumes that with respect to the surface centroid:
+		- the first point in the fault top edge is the fault upper left corner
+		- the last point in the fault top edge is the fault upper right corner
+		- the first point in the fault bottom edge is the fault lower left corner
+		- the last point in the fault bottom edge is the fault lower right corner
+		"""
+		#TODO: check fault_top_edge != fault_bottom_edge (i.e. they cannot contain the same set of points)
+		#TODO: check fault_top_edge and fault_bottom_edge do not share any point
+		#TODO: check that by joining fault corners the resulting
+		# polygon is valid. That is defines two lines connecting upper and lower left corner, and
+		# upper and lower right corner. Check that the two lines are not intersecting each other
+		# on the lat, lon plane.
+		#TODO: check mesh_spacing > 0
+		self.fault_top_edge = fault_top_edge
+		self.fault_bottom_edge = fault_bottom_edge
+		self.mesh_spacing = mesh_spacing
+		
+	def getSurfaceMesh(self):
+		"""
+		Computes 3D mesh representing fault surface.
+		"""
+		# computes mean fault edge lenght
+		length_upper_edge = self.fault_top_edge.getLength()
+		length_lower_edge = self.fault_bottom_edge.getLength()
+		mean_length = 
 		
 class SimpleFaultSurface:
 	"""
@@ -12,8 +48,8 @@ class SimpleFaultSurface:
 		"""
 		Represents fault surface as regular (uniformly spaced) 3D mesh of points derived from:
 		fault_trace: list of points representing intersection between fault surface and Earth surface
-		upper_seismo_depth: upper seismogenic depth (i.e. depth to fault's top edge, in km)
-		lower_seismo_depth: lower seismogenic depth (i.e. depth to fault's bottom edge, in km)
+		upper_seismo_depth: minimum depth ruptures can reach (i.e. depth to fault's top edge, in km)
+		lower_seismo_depth: maximum depth ruptures can reach (i.e. depth to fault's bottom edge, in km)
 		dip: dip angle (in degrees)
 		mesh_spacing: spacing (in km) between mesh points
 		"""
@@ -23,6 +59,7 @@ class SimpleFaultSurface:
 		# TODO: check (lower_seismo_depth - upper_seismo_depth) / sin(dip) >= mesh_spacing
 		# TODO: check dip >0 && dip <=90
 		# TODO: check mesh_spacing > 0
+		# TODO: check fault trace lenght is greater than fault mesh spacing
 		self.fault_trace = fault_trace
 		self.upper_seismo_depth = upper_seismo_depth
 		self.lower_seismo_depth = lower_seismo_depth
@@ -59,6 +96,86 @@ class SimpleFaultSurface:
 		surface = surface.reshape(len(top_edge),len(mesh_points)/len(top_edge))
 		surface = numpy.transpose(surface)
 		return surface
+		
+	def getSurfaceStrike(self,first,last_length):
+		"""
+		Computes strike of a surface portion as determined by:
+		- 'first': tuple (i,j) containing indexes of surface first mesh point
+		- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
+		"""
+		# TODO: check that indexes are compatible with mesh definition (that is
+		# do not define nodes outside of the surface mesh) and that first[0] = last_length[0]
+		# and that last_length[1]>=first[1]
+		
+		# if surface contains only one node along length
+		# computes azimuth from fault trace
+		if self.surface.shape[1] == 1:
+			return self.fault_trace[0].getAzimuth(self.fault_trace[1])
+		else:
+			# rupture extends for only one node
+			if first == last_length:
+				# if rupture node corresponds to last surface node
+				if first[1] == self.surface.shape[1]-1:
+					# compute strike as azimuth of the last segment
+					return self.surface[first[0],first[1]-1].getAzimuth(self.surface[first[0],first[1]])
+				else:
+					# compute strike as azimuth of the segment for which first represent first point
+					return self.surface[first[0],first[1]].getAzimuth(self.surface[first[0],first[1]+1])
+			else:
+				# compute strike as azimuth between first and last point of the surface portion
+				return self.surface[first[0],first[1]].getAzimuth(self.surface[last_length[0],last_length[1]])
+				
+	def getSurfaceDip(self,first,last_length,last_width):
+		"""
+		Computes dip of a surface portion as determined by:
+		- 'first': tuple (i,j) containing indexes of surface first mesh point
+		- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
+		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
+		"""
+		return self.dip
+		
+	def getSurfaceCentroid(self,first,last_length,last_width):
+		"""
+		Computes surface portion centroid, that is its geometrical center.
+		The surface portion is determined by:
+		- 'first': tuple (i,j) containing indexes of surface first mesh point
+		- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
+		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
+		"""
+		# if number of grid points along length and width is odd, returns
+		# location corresponding to central index
+		# if number of grid points along length is even and along width is
+		# odd (or viceversa), returns centroid of the central segment.
+		# if number of grid points along length and width is even, returns
+		# centroid of the central patch
+		num_rows = surf.shape[0]
+		num_cols = surf.shape[1]
+		if isOdd(num_rows) is True and isOdd(num_cols) is True:
+			return surf[int((num_rows - 1) / 2),int((num_cols - 1) / 2)]
+		elif isOdd(num_rows) is True and isOdd(num_cols) is not True:
+			p1 = surf[int((num_rows - 1) / 2),int(num_cols / 2 - 1)]
+			p2 = surf[int((num_rows - 1) / 2),int(num_cols / 2)]
+			mean_lon = (p1.longitude + p2.longitude) / 2
+			mean_lat = (p1.latitude + p2.latitude) / 2
+			mean_depth = (p1.depth + p2.depth) / 2
+			return Point(mean_lon,mean_lat,mean_depth)
+		elif isOdd(num_rows) is not True and isOdd(num_cols) is True:
+			p1 = surf[int(num_rows / 2 - 1),int((num_cols - 1) / 2)]
+			p2 = surf[int(num_rows / 2),int((num_cols - 1)) / 2]
+			mean_lon = (p1.longitude + p2.longitude) / 2
+			mean_lat = (p1.latitude + p2.latitude) / 2
+			mean_depth = (p1.depth + p2.depth) / 2
+			return Point(mean_lon,mean_lat,mean_depth)
+		else:
+			p1 = surf[int(num_rows / 2 - 1),int(num_cols / 2 - 1)]
+			p2 = surf[int(num_rows / 2 - 1),int(num_cols / 2)]
+			p3 = surf[int(num_rows / 2),int(num_cols / 2)]
+			p4 = surf[int(num_rows / 2),int(num_cols / 2 - 1)]
+			mean_lon = (p1.longitude + p2.longitude + p3.longitude + p4.longitude) / 4
+			mean_lat = (p1.latitude + p2.latitude + p3.latitude + p4.latitude) / 4
+			mean_depth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4
+			return Point(mean_lon,mean_lat,mean_depth)
+		
 		
 	def __getFaultTopEdge(self):
 		"""
@@ -201,8 +318,8 @@ class PoissonianFaultSource:
 		A rupture is currently defined in terms of:
 		- magnitude
 		- strike (defined as the azimuth between the first and last locations of the rupture top edge for extended ruptures
-					 or as azimuth between first and last locations of fault trace for point ruptures)
-		- dip (as derived from the fault surface)
+		or as azimuth between first and last locations of fault top edge for point ruptures)
+		- dip (defined as the mean dip as measured between upper and lower)
 		- rake
 		- tectonic region type
 		- hypocenter (defined as the centroid of the rupture surface)
@@ -210,68 +327,30 @@ class PoissonianFaultSource:
 		- rate of occurrence
 		- probability of occurrence
 		"""
+		# extract magnitude and rate
 		mag = self.rupture_data[rupt_index]['mag']
 		rate = self.rupture_data[rupt_index]['rate']
 		
+		# extract rupture surface
 		first = self.rupture_data[rupt_index]['first']
 		last_length = self.rupture_data[rupt_index]['last_length']
 		last_width = self.rupture_data[rupt_index]['last_width']
 		rup_surf_mesh = self.fault_surf.surface[first[0]:last_width[0]+1,first[1]:last_length[1]+1]
 		
-		# if point source measure strike as azimuth from first and last points in the fault trace
-		if len(rup_surf_mesh)==1:
-			strike = self.fault_surf.fault_trace[0].getAzimuth(self.fault_surf.fault_trace[-1])
-		else:
-			# compute strike as azimuth from first and last points in rupture top edge
-			strike = rup_surf_mesh[0,0].getAzimuth(rup_surf_mesh[0,-1])
+		# get strike and dip
+		strike = self.fault_surf.getSurfaceStrike(first,last_length)
+		dip  = self.fault_surf.getSurfaceDip(first,last_length,last_width)
 
-		hypocenter = self.__getSurfaceCentroid(rup_surf_mesh)
+		# get hypocenter
+		hypocenter = self.fault_surf.getSurfaceCentroid(first,last_length,last_width)
 		
 		# Poissonian probability of one or more occurrences
 		probability_occurrence = 1 - exp(-rate * self.time_span)
 		
-		return {'magnitude':mag,'strike':strike,'dip':self.fault_surf.dip,'rake':self.rake,
+		return {'magnitude':mag,'strike':strike,'dip':dip,'rake':self.rake,
 				'tectonic':self.tectonic_region_type,'hypocenter':hypocenter,
 				'surface':rup_surf_mesh,
 				'rate':rate,'probability':probability_occurrence}
-		
-	def __getSurfaceCentroid(self,surf):
-		"""
-		Computes surface centroid, that is its geometrical center.
-		"""
-		# if number of grid points along length and width is odd, returns
-		# location corresponding to central index
-		# if number of grid points along length is even and along width is
-		# odd (or viceversa), returns centroid of the central segment.
-		# if number of grid points along length and width is even, returns
-		# centroid of the central patch
-		num_rows = surf.shape[0]
-		num_cols = surf.shape[1]
-		if isOdd(num_rows) is True and isOdd(num_cols) is True:
-			return surf[int((num_rows - 1) / 2),int((num_cols - 1) / 2)]
-		elif isOdd(num_rows) is True and isOdd(num_cols) is not True:
-			p1 = surf[int((num_rows - 1) / 2),int(num_cols / 2 - 1)]
-			p2 = surf[int((num_rows - 1) / 2),int(num_cols / 2)]
-			mean_lon = (p1.longitude + p2.longitude) / 2
-			mean_lat = (p1.latitude + p2.latitude) / 2
-			mean_depth = (p1.depth + p2.depth) / 2
-			return Point(mean_lon,mean_lat,mean_depth)
-		elif isOdd(num_rows) is not True and isOdd(num_cols) is True:
-			p1 = surf[int(num_rows / 2 - 1),int((num_cols - 1) / 2)]
-			p2 = surf[int(num_rows / 2),int((num_cols - 1)) / 2]
-			mean_lon = (p1.longitude + p2.longitude) / 2
-			mean_lat = (p1.latitude + p2.latitude) / 2
-			mean_depth = (p1.depth + p2.depth) / 2
-			return Point(mean_lon,mean_lat,mean_depth)
-		else:
-			p1 = surf[int(num_rows / 2 - 1),int(num_cols / 2 - 1)]
-			p2 = surf[int(num_rows / 2 - 1),int(num_cols / 2)]
-			p3 = surf[int(num_rows / 2),int(num_cols / 2)]
-			p4 = surf[int(num_rows / 2),int(num_cols / 2 - 1)]
-			mean_lon = (p1.longitude + p2.longitude + p3.longitude + p4.longitude) / 4
-			mean_lat = (p1.latitude + p2.latitude + p3.latitude + p4.latitude) / 4
-			mean_depth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4
-			return Point(mean_lon,mean_lat,mean_depth)
 		
 	def getMinimumDistance(self,point):
 		"""

@@ -120,3 +120,15 @@ class Line:
 			resampled_line.extend(points[1:])
 		return Line(resampled_line)
 		
+	def getLenght(self):
+		"""
+		Computes line length.
+		"""
+		length = 0.0
+		for i in range(len(self.point_list) - 1):
+			dist = self.point_list[i].getDistance(self.point_list[i+1])
+			length = length + dist
+		
+		return length
+		
+		
