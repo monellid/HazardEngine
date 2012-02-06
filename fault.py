@@ -2,137 +2,73 @@ from math import *
 from geo import *
 from rup import *
 import numpy
+import abc
 
-class ComplexFaultSurface:
+class BaseSurface(object):
 	"""
-	Class defining Complex Fault Surface.
+	Base class for surface in 3D space.
 	"""
-	def __init__(self,fault_top_edge,fault_bottom_edge,mesh_spacing):
-		"""
-		Represents fault surface as 3D mesh of points obtained from:
-		fault_top_edge: list of points representing fault top edge
-		fault_bottom_edge: list of points representing fault bottom edge
-		mesh_spacing: average spacing between grid nodes
-		The class assumes that with respect to the surface centroid:
-		- the first point in the fault top edge is the fault upper left corner
-		- the last point in the fault top edge is the fault upper right corner
-		- the first point in the fault bottom edge is the fault lower left corner
-		- the last point in the fault bottom edge is the fault lower right corner
-		"""
-		#TODO: check fault_top_edge != fault_bottom_edge (i.e. they cannot contain the same set of points)
-		#TODO: check fault_top_edge and fault_bottom_edge do not share any point
-		#TODO: check that by joining fault corners the resulting
-		# polygon is valid. That is defines two lines connecting upper and lower left corner, and
-		# upper and lower right corner. Check that the two lines are not intersecting each other
-		# on the lat, lon plane.
-		#TODO: check mesh_spacing > 0
-		self.fault_top_edge = fault_top_edge
-		self.fault_bottom_edge = fault_bottom_edge
-		self.mesh_spacing = mesh_spacing
-		
-	def getSurfaceMesh(self):
-		"""
-		Computes 3D mesh representing fault surface.
-		"""
-		# computes mean fault edge lenght
-		length_upper_edge = self.fault_top_edge.getLength()
-		length_lower_edge = self.fault_bottom_edge.getLength()
-		mean_length = 
-		
-class SimpleFaultSurface:
-	"""
-	Class defining Simple Fault Surface.
-	"""
+	__metaclass__ = abc.ABCMeta
 	
-	def __init__(self,fault_trace,upper_seismo_depth,lower_seismo_depth,dip,mesh_spacing = 1):
+	def getSurfaceStrikeDip(self,first,last_length,last_width):
 		"""
-		Represents fault surface as regular (uniformly spaced) 3D mesh of points derived from:
-		fault_trace: list of points representing intersection between fault surface and Earth surface
-		upper_seismo_depth: minimum depth ruptures can reach (i.e. depth to fault's top edge, in km)
-		lower_seismo_depth: maximum depth ruptures can reach (i.e. depth to fault's bottom edge, in km)
-		dip: dip angle (in degrees)
-		mesh_spacing: spacing (in km) between mesh points
-		"""
-		# TODO: check that all points in fault_trace have depth = 0
-		# TODO: check that there are at least two points on the fault trace and they are not coincidents
-		# TODO: check upper_seismo_depth >= 0
-		# TODO: check (lower_seismo_depth - upper_seismo_depth) / sin(dip) >= mesh_spacing
-		# TODO: check dip >0 && dip <=90
-		# TODO: check mesh_spacing > 0
-		# TODO: check fault trace lenght is greater than fault mesh spacing
-		self.fault_trace = fault_trace
-		self.upper_seismo_depth = upper_seismo_depth
-		self.lower_seismo_depth = lower_seismo_depth
-		self.dip = dip
-		self.mesh_spacing = mesh_spacing
-		self.surface = self.getSurfaceMesh()
-		
-	def getSurfaceMesh(self):
-		"""
-		Computes 3D mesh representing fault surface. The mesh is constructed by 
-		translating the fault trace along the dip angle, along a direction perpendicular
-		to the fault trace strike (computed considering the first and last points in the fault trace).
-		Distance between mesh points is given by the mesh_spacing parameter (in km).
-		"""		
-		top_edge = self.__getFaultTopEdge()
-		
-		# compute mesh points. Loops over points in the top edge, for each point
-		# on the top edge compute corresponding point on the bottom edge, then
-		# computes equally spaced points between top and bottom points
-		vertical_distance = (self.lower_seismo_depth - self.upper_seismo_depth)
-		horizontal_distance = vertical_distance / tan(radians(self.dip))
-		strike = self.fault_trace[0].getAzimuth(self.fault_trace[-1])
-		azimuth = strike + 90.0
-		mesh_points = []
-		for point in top_edge:
-			bottom_point = point.getPoint(horizontal_distance,vertical_distance,azimuth)
-			points = point.getEquallySpacedPoints(bottom_point,self.mesh_spacing)
-			mesh_points.extend(points)
-		
-		# organize mesh points into a 2D array
-		# number of rows corresponds to number of points along dip
-		# number of columns corresponds to number of points along strike
-		surface = numpy.array(mesh_points)
-		surface = surface.reshape(len(top_edge),len(mesh_points)/len(top_edge))
-		surface = numpy.transpose(surface)
-		return surface
-		
-	def getSurfaceStrike(self,first,last_length):
-		"""
-		Computes strike of a surface portion as determined by:
-		- 'first': tuple (i,j) containing indexes of surface first mesh point
-		- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
-		"""
-		# TODO: check that indexes are compatible with mesh definition (that is
-		# do not define nodes outside of the surface mesh) and that first[0] = last_length[0]
-		# and that last_length[1]>=first[1]
-		
-		# if surface contains only one node along length
-		# computes azimuth from fault trace
-		if self.surface.shape[1] == 1:
-			return self.fault_trace[0].getAzimuth(self.fault_trace[1])
-		else:
-			# rupture extends for only one node
-			if first == last_length:
-				# if rupture node corresponds to last surface node
-				if first[1] == self.surface.shape[1]-1:
-					# compute strike as azimuth of the last segment
-					return self.surface[first[0],first[1]-1].getAzimuth(self.surface[first[0],first[1]])
-				else:
-					# compute strike as azimuth of the segment for which first represent first point
-					return self.surface[first[0],first[1]].getAzimuth(self.surface[first[0],first[1]+1])
-			else:
-				# compute strike as azimuth between first and last point of the surface portion
-				return self.surface[first[0],first[1]].getAzimuth(self.surface[last_length[0],last_length[1]])
-				
-	def getSurfaceDip(self,first,last_length,last_width):
-		"""
-		Computes dip of a surface portion as determined by:
+		Computes representative strike (i.e. azimuth) and dip (i.e. inclination) (in degrees) 
+		of a surface portion as determined by:
 		- 'first': tuple (i,j) containing indexes of surface first mesh point
 		- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
 		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
+		
+		The representative strike is computed as the (weighted) average strike between adjacent 
+		points in surface mesh rows. The weight is given by the distance between adjacent points.
+		
+		Representative strike is None if first[1] == last_length[1] (i.e. surface has no extension 
+		along length).
+		
+		The representative dip is computed as the (weighted) average dip between adjacent points
+		in surface mesh columns.
+		
+		Representative dip is None if first[0]==last_width[0], (i.e. surface has no extension 
+		along width).
+		
+		Error is thrown if first, last_length, last_width do not represent valid indexes.
 		"""
-		return self.dip
+		
+		average_strike = 0.0
+		average_dip = 0.0
+		
+		num_nodes_along_length = (last_length[1] - first[1]) + 1
+		num_nodes_along_width = (last_width[0] - first[0]) + 1
+		
+		if num_nodes_along_length == 1:
+			average_strike = None
+		else:
+			dist = 0.0
+			for i in range(num_nodes_along_width):
+				for j in range(num_nodes_along_length - 1):
+					p1 = self.surface[first[0]+i,first[1]+j]
+					p2 = self.surface[first[0]+i,first[1]+j+1]
+					tot_dist = p1.getDistance(p2)
+					strike = p1.getAzimuth(p2)
+					average_strike = average_strike + tot_dist * strike
+					dist = dist + tot_dist
+			average_strike = average_strike / dist
+			
+		if num_nodes_along_width == 1:
+			average_dip =  None
+		else:
+			dist = 0.0
+			for i in range(num_nodes_along_length):
+				for j in range(num_nodes_along_width - 1):
+					p1 = self.surface[first[0]+j,first[1]+i]
+					p2 = self.surface[first[0]+j+1,first[1]+i]
+					hor_dist = p1.geHorizontalDistance(p2)
+					tot_dist = p1.getDistance(p2)
+					dip = degrees(acos(hor_dist / tot_dist))
+					average_dip = average_dip + tot_dist * dip
+					dist = dist + tot_dist
+			average_dip = average_dip / dist
+			
+		return average_strike, average_dip
 		
 	def getSurfaceCentroid(self,first,last_length,last_width):
 		"""
@@ -175,6 +111,123 @@ class SimpleFaultSurface:
 			mean_lat = (p1.latitude + p2.latitude + p3.latitude + p4.latitude) / 4
 			mean_depth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4
 			return Point(mean_lon,mean_lat,mean_depth)
+
+
+
+class ComplexFaultSurface(BaseSurface):
+	"""
+	Class defining Complex Fault Surface.
+	"""
+	def __init__(self,fault_top_edge,fault_bottom_edge,mesh_spacing):
+		"""
+		Represents fault surface as 3D mesh of points obtained from:
+		fault_top_edge: list of points representing fault top edge
+		fault_bottom_edge: list of points representing fault bottom edge
+		mesh_spacing: average spacing between grid nodes
+		The class assumes that with respect to the surface centroid:
+		- the first point in the fault top edge is the fault upper left corner
+		- the last point in the fault top edge is the fault upper right corner
+		- the first point in the fault bottom edge is the fault lower left corner
+		- the last point in the fault bottom edge is the fault lower right corner
+		"""
+		#TODO: check fault_top_edge != fault_bottom_edge (i.e. they cannot contain the same set of points)
+		#TODO: check fault_top_edge and fault_bottom_edge do not share any point
+		#TODO: check that by joining fault corners the resulting
+		# polygon is valid. That is defines two lines connecting upper and lower left corner, and
+		# upper and lower right corner. Check that the two lines are not intersecting each other
+		# on the lat, lon plane.
+		#TODO: check mesh_spacing > 0
+		self.fault_top_edge = fault_top_edge
+		self.fault_bottom_edge = fault_bottom_edge
+		self.mesh_spacing = mesh_spacing
+		
+	def getSurfaceMesh(self):
+		"""
+		Computes 3D mesh representing fault surface.
+		"""
+		# computes mean fault edge lenght
+		length_upper_edge = self.fault_top_edge.getLength()
+		length_lower_edge = self.fault_bottom_edge.getLength()
+		#mean_length = 
+		
+class SimpleFaultSurface(BaseSurface):
+	"""
+	Class defining Simple Fault Surface.
+	"""
+	
+	def __init__(self,fault_trace,upper_seismo_depth,lower_seismo_depth,dip,mesh_spacing = 1):
+		"""
+		Represents fault surface as regular (uniformly spaced) 3D mesh of points derived from:
+		fault_trace: list of points representing intersection between fault surface and Earth surface
+		upper_seismo_depth: minimum depth ruptures can reach (i.e. depth to fault's top edge, in km)
+		lower_seismo_depth: maximum depth ruptures can reach (i.e. depth to fault's bottom edge, in km)
+		dip: dip angle (in degrees)
+		mesh_spacing: spacing (in km) between mesh points
+		"""
+		# TODO: check that all points in fault_trace have depth = 0
+		# TODO: check that there are at least two points on the fault trace and they are not coincidents
+		# TODO: check upper_seismo_depth >= 0
+		# TODO: check dip >0 && dip <=90
+		# TODO: check mesh_spacing > 0
+		# TODO: check fault trace lenght is greater than fault mesh spacing
+		self.fault_trace = fault_trace
+		self.upper_seismo_depth = upper_seismo_depth
+		self.lower_seismo_depth = lower_seismo_depth
+		self.dip = dip
+		self.mesh_spacing = mesh_spacing
+		self.surface = self.getSurfaceMesh()
+		
+	def getSurfaceMesh(self):
+		"""
+		Computes 3D mesh representing fault surface. The mesh is constructed by 
+		translating the fault trace along the dip angle, along a direction perpendicular
+		to the fault trace strike (computed considering the first and last points in the fault trace).
+		Distance between mesh points is given by the mesh_spacing parameter (in km).
+		"""		
+		top_edge = self.__getFaultTopEdge()
+		
+		# compute mesh points. Loops over points in the top edge, for each point
+		# on the top edge compute corresponding point on the bottom edge, then
+		# computes equally spaced points between top and bottom points
+		vertical_distance = (self.lower_seismo_depth - self.upper_seismo_depth)
+		horizontal_distance = vertical_distance / tan(radians(self.dip))
+		strike = self.fault_trace[0].getAzimuth(self.fault_trace[-1])
+		azimuth = strike + 90.0
+		mesh_points = []
+		for point in top_edge:
+			bottom_point = point.getPoint(horizontal_distance,vertical_distance,azimuth)
+			points = point.getEquallySpacedPoints(bottom_point,self.mesh_spacing)
+			mesh_points.extend(points)
+		
+		# organize mesh points into a 2D array
+		# number of rows corresponds to number of points along dip
+		# number of columns corresponds to number of points along strike
+		surface = numpy.array(mesh_points)
+		surface = surface.reshape(len(top_edge),len(mesh_points)/len(top_edge))
+		surface = numpy.transpose(surface)
+		return surface
+		
+	def getSurfaceStrikeDip(self,first,last_length,last_width):
+		"""
+		Computes representative values for strike and dip of a surface portion.
+		
+		If the surface portion is represented by a single node along lenght, the representative
+		strike is computed as the azimuth between first and last points in the fault
+		trace.
+		
+		If the surface portion is represented by a single node along width the representative
+		dip is assumed equal to the fault dip as specified in the constructor.
+		"""
+		
+		strike,dip = super(SimpleFaultSurface,self).getSurfaceStrikeDip(first,last_length,last_width)
+		
+		if strike is None:
+			strike = self.fault_trace[0].getAzimuth(fault_trace[-1])
+			
+		if dip is None:
+			dip = self.dip
+			
+		return strike, dip
 		
 		
 	def __getFaultTopEdge(self):
@@ -338,8 +391,7 @@ class PoissonianFaultSource:
 		rup_surf_mesh = self.fault_surf.surface[first[0]:last_width[0]+1,first[1]:last_length[1]+1]
 		
 		# get strike and dip
-		strike = self.fault_surf.getSurfaceStrike(first,last_length)
-		dip  = self.fault_surf.getSurfaceDip(first,last_length,last_width)
+		strike,dip  = self.fault_surf.getSurfaceStrikeDip(first,last_length,last_width)
 
 		# get hypocenter
 		hypocenter = self.fault_surf.getSurfaceCentroid(first,last_length,last_width)
