@@ -61,7 +61,7 @@ class BaseSurface(object):
 				for j in range(num_nodes_along_width - 1):
 					p1 = self.surface[first[0]+j,first[1]+i]
 					p2 = self.surface[first[0]+j+1,first[1]+i]
-					hor_dist = p1.geHorizontalDistance(p2)
+					hor_dist = p1.getHorizontalDistance(p2)
 					tot_dist = p1.getDistance(p2)
 					dip = degrees(acos(hor_dist / tot_dist))
 					average_dip = average_dip + tot_dist * dip
@@ -84,29 +84,29 @@ class BaseSurface(object):
 		# odd (or viceversa), returns centroid of the central segment.
 		# if number of grid points along length and width is even, returns
 		# centroid of the central patch
-		num_rows = surf.shape[0]
-		num_cols = surf.shape[1]
+		num_rows = self.surface.shape[0]
+		num_cols = self.surface.shape[1]
 		if isOdd(num_rows) is True and isOdd(num_cols) is True:
-			return surf[int((num_rows - 1) / 2),int((num_cols - 1) / 2)]
+			return self.surface[int((num_rows - 1) / 2),int((num_cols - 1) / 2)]
 		elif isOdd(num_rows) is True and isOdd(num_cols) is not True:
-			p1 = surf[int((num_rows - 1) / 2),int(num_cols / 2 - 1)]
-			p2 = surf[int((num_rows - 1) / 2),int(num_cols / 2)]
+			p1 = self.surface[int((num_rows - 1) / 2),int(num_cols / 2 - 1)]
+			p2 = self.surface[int((num_rows - 1) / 2),int(num_cols / 2)]
 			mean_lon = (p1.longitude + p2.longitude) / 2
 			mean_lat = (p1.latitude + p2.latitude) / 2
 			mean_depth = (p1.depth + p2.depth) / 2
 			return Point(mean_lon,mean_lat,mean_depth)
 		elif isOdd(num_rows) is not True and isOdd(num_cols) is True:
-			p1 = surf[int(num_rows / 2 - 1),int((num_cols - 1) / 2)]
-			p2 = surf[int(num_rows / 2),int((num_cols - 1)) / 2]
+			p1 = self.surface[int(num_rows / 2 - 1),int((num_cols - 1) / 2)]
+			p2 = self.surface[int(num_rows / 2),int((num_cols - 1)) / 2]
 			mean_lon = (p1.longitude + p2.longitude) / 2
 			mean_lat = (p1.latitude + p2.latitude) / 2
 			mean_depth = (p1.depth + p2.depth) / 2
 			return Point(mean_lon,mean_lat,mean_depth)
 		else:
-			p1 = surf[int(num_rows / 2 - 1),int(num_cols / 2 - 1)]
-			p2 = surf[int(num_rows / 2 - 1),int(num_cols / 2)]
-			p3 = surf[int(num_rows / 2),int(num_cols / 2)]
-			p4 = surf[int(num_rows / 2),int(num_cols / 2 - 1)]
+			p1 = self.surface[int(num_rows / 2 - 1),int(num_cols / 2 - 1)]
+			p2 = self.surface[int(num_rows / 2 - 1),int(num_cols / 2)]
+			p3 = self.surface[int(num_rows / 2),int(num_cols / 2)]
+			p4 = self.surface[int(num_rows / 2),int(num_cols / 2 - 1)]
 			mean_lon = (p1.longitude + p2.longitude + p3.longitude + p4.longitude) / 4
 			mean_lat = (p1.latitude + p2.latitude + p3.latitude + p4.latitude) / 4
 			mean_depth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4
@@ -207,25 +207,76 @@ class SimpleFaultSurface(BaseSurface):
 		surface = numpy.transpose(surface)
 		return surface
 		
+	def getStrike(self):
+		"""
+		Return fault strike as average strike along fault trace.
+		"""
+		average_strike = 0.0;
+		fault_trace_length = 0.0;
+		for i in range(len(self.fault_trace) - 1):
+			strike = self.fault_trace[i].getAzimuth(self.fault_trace[i+1])
+			section_length = self.fault_trace[i].getHorizontalDistance(self.fault_trace[i+1])
+			average_strike = average_strike + section_length * strike
+			fault_trace_length = fault_trace_length + section_length
+		return average_strike / fault_trace_length
+		
+	def getDip(self):
+		"""
+		Return fault dip as average dip computed over fault surface mesh.
+		If the surface mesh has only one location along width or one along strike,
+		returns dip value as passed in the constructor.
+		"""
+		if self.surface.shape[0] == 1 or self.surface.shape[1] == 1:
+			return self.dip
+		else:
+			average_dip = 0.0
+			# loop over mesh cells. For each mesh cell compute the normal vector to
+			# the cell, and the normal vector to the earth surface. Computes
+			# the dip as the angle between the two normal vectors
+			for i in range(self.surface.shape[0] - 1):
+				for j in range(self.surface.shape[1] - 1):
+					# get the top (left and right) and lower left points defining the mesh cell
+					p1 = self.surface[i,j]
+					p2 = self.surface[i,j+1]
+					p3 = self.surface[i+1,j]
+					# convert coordinates from spherical to cartesians
+					P1 = getCartesianCoordinates(p1.longitude,p1.latitude,p1.depth)
+					P2 = getCartesianCoordinates(p2.longitude,p2.latitude,p2.depth)
+					P3 = getCartesianCoordinates(p3.longitude,p3.latitude,p3.depth)
+					# define vectors p1p2 and p1p3, that is vector connecting upper
+					# left and upper right corners and upper left and lower left corners.
+					p1p2 = [P2[0]-P1[0],P2[1]-P1[1],P2[2]-P1[2]]
+					p1p3 = [P3[0]-P1[0],P3[1]-P1[1],P3[2]-P1[2]]
+					# compute normal vector as cross product of p1p2 and p1p3 and normalize it
+					normal = numpy.cross(p1p3,p1p2)
+					normal = normal / sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
+					# compute unit vector normal to earth surface at p1
+					normal_p1 = P1 / sqrt(P1[0]**2 + P1[1]**2 + P1[2]**2)
+					# compute angle in between: this is the dip
+					dip = degrees(acos(numpy.dot(normal_p1,normal)))
+					average_dip = average_dip + dip
+					
+			return average_dip / ((self.surface.shape[0] - 1) * (self.surface.shape[1] - 1))
+		
 	def getSurfaceStrikeDip(self,first,last_length,last_width):
 		"""
 		Computes representative values for strike and dip of a surface portion.
 		
 		If the surface portion is represented by a single node along lenght, the representative
-		strike is computed as the azimuth between first and last points in the fault
-		trace.
+		strike is computed as the average strike along fault trace, otherwise is computed as the
+		average strike along the surface portion top edge.
 		
 		If the surface portion is represented by a single node along width the representative
-		dip is assumed equal to the fault dip as specified in the constructor.
+		dip is computed as the average dip over the fault surface mesh.
 		"""
 		
 		strike,dip = super(SimpleFaultSurface,self).getSurfaceStrikeDip(first,last_length,last_width)
 		
 		if strike is None:
-			strike = self.fault_trace[0].getAzimuth(fault_trace[-1])
+			strike = self.getStrike()
 			
 		if dip is None:
-			dip = self.dip
+			dip = self.getDip()
 			
 		return strike, dip
 		
@@ -427,3 +478,14 @@ class PoissonianFaultSource:
 		
 def isOdd(i):
 	return (i%2) and True or False
+	
+def getCartesianCoordinates(longitude,latitude,depth):
+	"""Convert spherical coordinates to cartesian coordiantes:
+	see http://mathworld.wolfram.com/SphericalCoordinates.html"""
+	earth_radius = 6371 # in km
+	theta = radians(longitude)
+	phi = radians(90.0 - latitude)
+	x = (earth_radius - depth) * cos(theta) * sin(phi)
+	y = (earth_radius - depth) * sin(theta) * sin(phi)
+	z = (earth_radius - depth) * cos(phi)
+	return numpy.array([x,y,z])
