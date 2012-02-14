@@ -2,119 +2,9 @@ from math import *
 from geo import *
 from rup import *
 import numpy
-import abc
-
-class BaseSurface(object):
-	"""
-	Base class for surface in 3D space.
-	"""
-	__metaclass__ = abc.ABCMeta
-	
-	def getSurfaceStrikeDip(self,first,last_length,last_width):
-		"""
-		Computes representative strike (i.e. azimuth) and dip (i.e. inclination) (in degrees) 
-		of a surface portion as determined by:
-		- 'first': tuple (i,j) containing indexes of surface first mesh point
-		- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
-		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
-		
-		The representative strike is computed as the (weighted) average strike between adjacent 
-		points in surface mesh rows. The weight is given by the distance between adjacent points.
-		
-		Representative strike is None if first[1] == last_length[1] (i.e. surface has no extension 
-		along length).
-		
-		The representative dip is computed as the (weighted) average dip between adjacent points
-		in surface mesh columns.
-		
-		Representative dip is None if first[0]==last_width[0], (i.e. surface has no extension 
-		along width).
-		
-		Error is thrown if first, last_length, last_width do not represent valid indexes.
-		"""
-		
-		average_strike = 0.0
-		average_dip = 0.0
-		
-		num_nodes_along_length = (last_length[1] - first[1]) + 1
-		num_nodes_along_width = (last_width[0] - first[0]) + 1
-		
-		if num_nodes_along_length == 1:
-			average_strike = None
-		else:
-			dist = 0.0
-			for i in range(num_nodes_along_width):
-				for j in range(num_nodes_along_length - 1):
-					p1 = self.surface[first[0]+i,first[1]+j]
-					p2 = self.surface[first[0]+i,first[1]+j+1]
-					tot_dist = p1.getDistance(p2)
-					strike = p1.getAzimuth(p2)
-					average_strike = average_strike + tot_dist * strike
-					dist = dist + tot_dist
-			average_strike = average_strike / dist
-			
-		if num_nodes_along_width == 1:
-			average_dip =  None
-		else:
-			dist = 0.0
-			for i in range(num_nodes_along_length):
-				for j in range(num_nodes_along_width - 1):
-					p1 = self.surface[first[0]+j,first[1]+i]
-					p2 = self.surface[first[0]+j+1,first[1]+i]
-					hor_dist = p1.getHorizontalDistance(p2)
-					tot_dist = p1.getDistance(p2)
-					dip = degrees(acos(hor_dist / tot_dist))
-					average_dip = average_dip + tot_dist * dip
-					dist = dist + tot_dist
-			average_dip = average_dip / dist
-			
-		return average_strike, average_dip
-		
-	def getSurfaceCentroid(self,first,last_length,last_width):
-		"""
-		Computes surface portion centroid, that is its geometrical center.
-		The surface portion is determined by:
-		- 'first': tuple (i,j) containing indexes of surface first mesh point
-		- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
-		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
-		"""
-		# if number of grid points along length and width is odd, returns
-		# location corresponding to central index
-		# if number of grid points along length is even and along width is
-		# odd (or viceversa), returns centroid of the central segment.
-		# if number of grid points along length and width is even, returns
-		# centroid of the central patch
-		num_rows = self.surface.shape[0]
-		num_cols = self.surface.shape[1]
-		if isOdd(num_rows) is True and isOdd(num_cols) is True:
-			return self.surface[int((num_rows - 1) / 2),int((num_cols - 1) / 2)]
-		elif isOdd(num_rows) is True and isOdd(num_cols) is not True:
-			p1 = self.surface[int((num_rows - 1) / 2),int(num_cols / 2 - 1)]
-			p2 = self.surface[int((num_rows - 1) / 2),int(num_cols / 2)]
-			mean_lon = (p1.longitude + p2.longitude) / 2
-			mean_lat = (p1.latitude + p2.latitude) / 2
-			mean_depth = (p1.depth + p2.depth) / 2
-			return Point(mean_lon,mean_lat,mean_depth)
-		elif isOdd(num_rows) is not True and isOdd(num_cols) is True:
-			p1 = self.surface[int(num_rows / 2 - 1),int((num_cols - 1) / 2)]
-			p2 = self.surface[int(num_rows / 2),int((num_cols - 1)) / 2]
-			mean_lon = (p1.longitude + p2.longitude) / 2
-			mean_lat = (p1.latitude + p2.latitude) / 2
-			mean_depth = (p1.depth + p2.depth) / 2
-			return Point(mean_lon,mean_lat,mean_depth)
-		else:
-			p1 = self.surface[int(num_rows / 2 - 1),int(num_cols / 2 - 1)]
-			p2 = self.surface[int(num_rows / 2 - 1),int(num_cols / 2)]
-			p3 = self.surface[int(num_rows / 2),int(num_cols / 2)]
-			p4 = self.surface[int(num_rows / 2),int(num_cols / 2 - 1)]
-			mean_lon = (p1.longitude + p2.longitude + p3.longitude + p4.longitude) / 4
-			mean_lat = (p1.latitude + p2.latitude + p3.latitude + p4.latitude) / 4
-			mean_depth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4
-			return Point(mean_lon,mean_lat,mean_depth)
 
 
-
-class ComplexFaultSurface(BaseSurface):
+class ComplexFaultSurface:
 	"""
 	Class defining Complex Fault Surface.
 	"""
@@ -150,7 +40,7 @@ class ComplexFaultSurface(BaseSurface):
 		length_lower_edge = self.fault_bottom_edge.getLength()
 		#mean_length = 
 		
-class SimpleFaultSurface(BaseSurface):
+class SimpleFaultSurface:
 	"""
 	Class defining Simple Fault Surface.
 	"""
@@ -222,7 +112,13 @@ class SimpleFaultSurface(BaseSurface):
 		
 	def getDip(self):
 		"""
-		Return fault dip as average dip computed over fault surface mesh.
+		Return fault dip as the average dip over the fault surface mesh.
+		It's computed as the average value of the dip values of the mesh cells in the first row
+		of the surface mesh (for SimpleFaultSurface dip is constant over depth, so
+		there is not need to compute dip angle along width). 
+		The dip of each mesh cell is obtained by calculating the vector normal to each mesh
+		cell, and the vector normal to the Earth surface at the cell location. The angle
+		between these two vector is the dip angle.
 		If the surface mesh has only one location along width or one along strike,
 		returns dip value as passed in the constructor.
 		"""
@@ -230,56 +126,172 @@ class SimpleFaultSurface(BaseSurface):
 			return self.dip
 		else:
 			average_dip = 0.0
-			# loop over mesh cells. For each mesh cell compute the normal vector to
+			# loop over mesh cells (only in the first row, this because in a SimpleFaultSurface
+			# dip does not vary with depth). For each mesh cell compute the vector normal to
+			# the cell, and the vector normal to the earth surface. Computes
+			# the dip as the angle between the these two vectors
+			for i in range(self.surface.shape[1] - 1):
+				# get the top (left and right) and lower left points defining the mesh cell
+				p1 = self.surface[0,i]
+				p2 = self.surface[0,i+1]
+				p3 = self.surface[1,i]
+				# convert coordinates from spherical to cartesians
+				P1 = getCartesianCoordinates(p1.longitude,p1.latitude,p1.depth)
+				P2 = getCartesianCoordinates(p2.longitude,p2.latitude,p2.depth)
+				P3 = getCartesianCoordinates(p3.longitude,p3.latitude,p3.depth)
+				# define vectors p1p2 and p1p3, that is vector connecting upper
+				# left and upper right corners and upper left and lower left corners.
+				p1p2 = [P2[0]-P1[0],P2[1]-P1[1],P2[2]-P1[2]]
+				p1p3 = [P3[0]-P1[0],P3[1]-P1[1],P3[2]-P1[2]]
+				# compute normal vector as cross product of p1p2 and p1p3 and normalize it
+				normal = numpy.cross(p1p3,p1p2)
+				normal = normal / sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
+				# compute unit vector normal to earth surface at p1
+				normal_p1 = P1 / sqrt(P1[0]**2 + P1[1]**2 + P1[2]**2)
+				# compute angle in between: this is the dip
+				dip = degrees(acos(numpy.dot(normal_p1,normal)))
+				average_dip = average_dip + dip
+					
+			return average_dip / (self.surface.shape[1] - 1)
+			
+	def __getSurfacePortionStrike(self,first,last_length):
+		"""
+		Computes representative strike value for a surface portion as defined by:
+			- first: tuple (i,j) containing indexes of surface first mesh point
+			- last_length: tuple (i,j) containing indexes of surface last mesh point along length
+		If the surface portion consists of only one node along length (first[1]==last_length[1]) and
+		the fault surface mesh consists of only one node along length then the average strike from fault
+		trace is returned.
+		If the surface portion consists of only one node along length but the fault surface mesh consists
+		of more than one node along length than the average strike of the segments the node belongs
+		to is returned.
+		If the surface portion consists of more than one node along length, than the average strike along
+		the surface portion top edge is computed.
+		"""
+		# TODO: check that first and last_length are valid indexes
+		# 0<=first[0]<=self.surface.shape[0] - 1
+		# 0<=first[1]<=self.surface.shape[1] - 1
+		# last_length[0]==first[0]
+		# last_length[1] >= first[1]
+		
+		num_nodes_along_length = (last_length[1] - first[1]) + 1
+		
+		if num_nodes_along_length == 1 and self.surface.shape[1]==1:
+			average_strike = self.getStrike()
+		elif num_nodes_along_length == 1 and self.surface.shape[1]!=1:
+			# if the node lies on the last column of the surface mesh
+			if first[1]==self.surface.shape[1] - 1:
+				average_strike = self.surface[first[0],first[1]-1].getAzimuth(self.surface[first[0],first[1]])
+			# if the node lies on the first column of the surface mesh
+			elif first[1]==0:
+				average_strike = self.surface[first[0],0].getAzimuth(self.surface[first[0],1])
+			# if the node is in between the first and last columns of the surface mesh
+			else:
+				strike1 = self.surface[first[0],first[1]-1].getAzimuth(first[0],first[1])
+				strike2 = self.surface[first[0],first[1]].getAzimuth(first[0],first[1]+1)
+				average_strike = (strike1 + strike2) / 2
+		else:
+			average_strike = 0.0
+			for i in range(num_nodes_along_length - 1):
+				p1 = self.surface[first[0],first[1]+i]
+				p2 = self.surface[first[0],first[1]+i+1]
+				strike = p1.getAzimuth(p2)
+				average_strike = average_strike + strike
+			average_strike = average_strike / (num_nodes_along_length - 1)
+			
+		return average_strike
+		
+	def __getSurfacePortionDip(self,first,last_length,last_width):
+		"""
+		Computes representative dip value for a surface portion as defined by:
+			- first: tuple (i,j) containing indexes of surface first mesh point
+			- last_length: tuple (i,j) containing indexes of surface last mesh point along length
+			- last_width: tuple (i,j) containing indexes of rupture's last mesh point along width
+		If the surface portion consists of only one node along length, and the surface mesh
+		if the surface portion consists of only one node along width (first[0]==last_width[0]) and
+		the fault surface mesh consists of only one node along width, then the dip value as passed
+		in the constructor is returned.
+		"""
+		# TODO: check that first and last_length are valid indexes
+		# 0<=first[0]<=self.surface.shape[0] - 1
+		# 0<=first[1]<=self.surface.shape[1] - 1
+		# last_length[0]==first[0]
+		# last_length[1] >= first[1]
+		
+		num_nodes_along_length = (last_length[1] - first[1]) + 1
+		num_nodes_along_width = (last_width[0] - first[0]) + 1
+		
+		if num_nodes_along_width == 1 or num_nodes_along_length == 1:
+			return self.dip
+		else:
+			average_dip = 0.0
+			# loop over mesh cells (in the first row). For each mesh cell compute the normal vector to
 			# the cell, and the normal vector to the earth surface. Computes
 			# the dip as the angle between the two normal vectors
-			for i in range(self.surface.shape[0] - 1):
-				for j in range(self.surface.shape[1] - 1):
-					# get the top (left and right) and lower left points defining the mesh cell
-					p1 = self.surface[i,j]
-					p2 = self.surface[i,j+1]
-					p3 = self.surface[i+1,j]
-					# convert coordinates from spherical to cartesians
-					P1 = getCartesianCoordinates(p1.longitude,p1.latitude,p1.depth)
-					P2 = getCartesianCoordinates(p2.longitude,p2.latitude,p2.depth)
-					P3 = getCartesianCoordinates(p3.longitude,p3.latitude,p3.depth)
-					# define vectors p1p2 and p1p3, that is vector connecting upper
-					# left and upper right corners and upper left and lower left corners.
-					p1p2 = [P2[0]-P1[0],P2[1]-P1[1],P2[2]-P1[2]]
-					p1p3 = [P3[0]-P1[0],P3[1]-P1[1],P3[2]-P1[2]]
-					# compute normal vector as cross product of p1p2 and p1p3 and normalize it
-					normal = numpy.cross(p1p3,p1p2)
-					normal = normal / sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
-					# compute unit vector normal to earth surface at p1
-					normal_p1 = P1 / sqrt(P1[0]**2 + P1[1]**2 + P1[2]**2)
-					# compute angle in between: this is the dip
-					dip = degrees(acos(numpy.dot(normal_p1,normal)))
-					average_dip = average_dip + dip
-					
-			return average_dip / ((self.surface.shape[0] - 1) * (self.surface.shape[1] - 1))
-		
-	def getSurfaceStrikeDip(self,first,last_length,last_width):
-		"""
-		Computes representative values for strike and dip of a surface portion.
-		
-		If the surface portion is represented by a single node along lenght, the representative
-		strike is computed as the average strike along fault trace, otherwise is computed as the
-		average strike along the surface portion top edge.
-		
-		If the surface portion is represented by a single node along width the representative
-		dip is computed as the average dip over the fault surface mesh.
-		"""
-		
-		strike,dip = super(SimpleFaultSurface,self).getSurfaceStrikeDip(first,last_length,last_width)
-		
-		if strike is None:
-			strike = self.getStrike()
+			for i in range(num_nodes_along_length - 1):
+				# get the top (left and right) and lower left points defining the mesh cell
+				p1 = self.surface[first[0],first[1] + i]
+				p2 = self.surface[first[0],first[1] + i + 1]
+				p3 = self.surface[first[0] + 1,first[1] + i]
+				# convert coordinates from spherical to cartesians
+				P1 = getCartesianCoordinates(p1.longitude,p1.latitude,p1.depth)
+				P2 = getCartesianCoordinates(p2.longitude,p2.latitude,p2.depth)
+				P3 = getCartesianCoordinates(p3.longitude,p3.latitude,p3.depth)
+				# define vectors p1p2 and p1p3, that is vector connecting upper
+				# left and upper right corners and upper left and lower left corners.
+				p1p2 = [P2[0]-P1[0],P2[1]-P1[1],P2[2]-P1[2]]
+				p1p3 = [P3[0]-P1[0],P3[1]-P1[1],P3[2]-P1[2]]
+				# compute normal vector as cross product of p1p2 and p1p3 and normalize it
+				normal = numpy.cross(p1p3,p1p2)
+				normal = normal / sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
+				# compute unit vector normal to earth surface at p1
+				normal_p1 = P1 / sqrt(P1[0]**2 + P1[1]**2 + P1[2]**2)
+				# compute angle in between: this is the dip
+				dip = degrees(acos(numpy.dot(normal_p1,normal)))
+				average_dip = average_dip + dip
+			return average_dip / (num_nodes_along_length - 1)
 			
-		if dip is None:
-			dip = self.getDip()
-			
-		return strike, dip
-		
+	def __getSurfacePortionCentroid(self,first,last_length,last_width):
+		"""
+		Computes surface portion centroid, that is its geometrical center.
+		The surface portion is determined by:
+		- 'first': tuple (i,j) containing indexes of surface first mesh point
+		- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
+		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
+		"""
+		# if number of grid points along length and width is odd, returns
+		# location corresponding to central index
+		# if number of grid points along length is even and along width is
+		# odd (or viceversa), returns centroid of the central segment.
+		# if number of grid points along length and width is even, returns
+		# centroid of the central patch
+		num_rows = self.surface.shape[0]
+		num_cols = self.surface.shape[1]
+		if isOdd(num_rows) is True and isOdd(num_cols) is True:
+			return self.surface[int((num_rows - 1) / 2),int((num_cols - 1) / 2)]
+		elif isOdd(num_rows) is True and isOdd(num_cols) is not True:
+			p1 = self.surface[int((num_rows - 1) / 2),int(num_cols / 2 - 1)]
+			p2 = self.surface[int((num_rows - 1) / 2),int(num_cols / 2)]
+			mean_lon = (p1.longitude + p2.longitude) / 2
+			mean_lat = (p1.latitude + p2.latitude) / 2
+			mean_depth = (p1.depth + p2.depth) / 2
+			return Point(mean_lon,mean_lat,mean_depth)
+		elif isOdd(num_rows) is not True and isOdd(num_cols) is True:
+			p1 = self.surface[int(num_rows / 2 - 1),int((num_cols - 1) / 2)]
+			p2 = self.surface[int(num_rows / 2),int((num_cols - 1)) / 2]
+			mean_lon = (p1.longitude + p2.longitude) / 2
+			mean_lat = (p1.latitude + p2.latitude) / 2
+			mean_depth = (p1.depth + p2.depth) / 2
+			return Point(mean_lon,mean_lat,mean_depth)
+		else:
+			p1 = self.surface[int(num_rows / 2 - 1),int(num_cols / 2 - 1)]
+			p2 = self.surface[int(num_rows / 2 - 1),int(num_cols / 2)]
+			p3 = self.surface[int(num_rows / 2),int(num_cols / 2)]
+			p4 = self.surface[int(num_rows / 2),int(num_cols / 2 - 1)]
+			mean_lon = (p1.longitude + p2.longitude + p3.longitude + p4.longitude) / 4
+			mean_lat = (p1.latitude + p2.latitude + p3.latitude + p4.latitude) / 4
+			mean_depth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4
+			return Point(mean_lon,mean_lat,mean_depth)
 		
 	def __getFaultTopEdge(self):
 		"""
