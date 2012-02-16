@@ -140,7 +140,7 @@ class SimpleFaultSurface:
 				average_dip = average_dip + dip
 			return average_dip / (self.surface.shape[1] - 1)
 			
-	def getSurfacePortionStrike(self,first,last_length):
+	def getSurfacePortionStrike(self,first,last_length,last_width):
 		"""
 		Computes representative strike value for a surface portion as defined by:
 			- first: tuple (i,j) containing indexes of surface first mesh point
@@ -231,29 +231,30 @@ class SimpleFaultSurface:
 		# odd (or viceversa), returns centroid of the central segment.
 		# if number of grid points along length and width is even, returns
 		# centroid of the central patch
-		num_rows = self.surface.shape[0]
-		num_cols = self.surface.shape[1]
+		portion = self.surface[first[0]:last_width[0]+1,first[1]:last_length[1]+1]
+		num_rows = portion.shape[0]
+		num_cols = portion.shape[1]
 		if isOdd(num_rows) is True and isOdd(num_cols) is True:
-			return self.surface[int((num_rows - 1) / 2),int((num_cols - 1) / 2)]
+			return portion[int((num_rows - 1) / 2),int((num_cols - 1) / 2)]
 		elif isOdd(num_rows) is True and isOdd(num_cols) is not True:
-			p1 = self.surface[int((num_rows - 1) / 2),int(num_cols / 2 - 1)]
-			p2 = self.surface[int((num_rows - 1) / 2),int(num_cols / 2)]
+			p1 = portion[int((num_rows - 1) / 2),int(num_cols / 2 - 1)]
+			p2 = portion[int((num_rows - 1) / 2),int(num_cols / 2)]
 			mean_lon = (p1.longitude + p2.longitude) / 2
 			mean_lat = (p1.latitude + p2.latitude) / 2
 			mean_depth = (p1.depth + p2.depth) / 2
 			return Point(mean_lon,mean_lat,mean_depth)
 		elif isOdd(num_rows) is not True and isOdd(num_cols) is True:
-			p1 = self.surface[int(num_rows / 2 - 1),int((num_cols - 1) / 2)]
-			p2 = self.surface[int(num_rows / 2),int((num_cols - 1)) / 2]
+			p1 = portion[int(num_rows / 2 - 1),int((num_cols - 1) / 2)]
+			p2 = portion[int(num_rows / 2),int((num_cols - 1)) / 2]
 			mean_lon = (p1.longitude + p2.longitude) / 2
 			mean_lat = (p1.latitude + p2.latitude) / 2
 			mean_depth = (p1.depth + p2.depth) / 2
 			return Point(mean_lon,mean_lat,mean_depth)
 		else:
-			p1 = self.surface[int(num_rows / 2 - 1),int(num_cols / 2 - 1)]
-			p2 = self.surface[int(num_rows / 2 - 1),int(num_cols / 2)]
-			p3 = self.surface[int(num_rows / 2),int(num_cols / 2)]
-			p4 = self.surface[int(num_rows / 2),int(num_cols / 2 - 1)]
+			p1 = portion[int(num_rows / 2 - 1),int(num_cols / 2 - 1)]
+			p2 = portion[int(num_rows / 2 - 1),int(num_cols / 2)]
+			p3 = portion[int(num_rows / 2),int(num_cols / 2)]
+			p4 = portion[int(num_rows / 2),int(num_cols / 2 - 1)]
 			mean_lon = (p1.longitude + p2.longitude + p3.longitude + p4.longitude) / 4
 			mean_lat = (p1.latitude + p2.latitude + p3.latitude + p4.latitude) / 4
 			mean_depth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4
@@ -420,11 +421,11 @@ class PoissonianFaultSource:
 		rup_surf_mesh = self.fault_surf.surface[first[0]:last_width[0]+1,first[1]:last_length[1]+1]
 		
 		# get strike and dip
-		strike = self.fault_surf.getSurfacePortionStrike(first,last_length)
+		strike = self.fault_surf.getSurfacePortionStrike(first,last_length,last_width)
 		dip  = self.fault_surf.getSurfacePortionDip(first,last_length,last_width)
 
 		# get hypocenter
-		hypocenter = self.fault_surf.getSurfaceCentroid(first,last_length,last_width)
+		hypocenter = self.fault_surf.getSurfacePortionCentroid(first,last_length,last_width)
 		
 		# Poissonian probability of one or more occurrences
 		probability_occurrence = 1 - exp(-rate * self.time_span)
