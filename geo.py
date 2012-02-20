@@ -131,4 +131,12 @@ class Line:
 		
 		return length
 		
+	def getResampledLineInNpoints(self,n_points):
+		"""
+		Resample line into n points.
+		"""
+		line_length = self.getLength()
+		section_length = int(round(line_length / (n_points - 1)))
+		return self.getResampledLine(section_length)
+		
 		
