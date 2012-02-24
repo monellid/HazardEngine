@@ -105,7 +105,7 @@ class ComplexFaultSource:
 	Class defining complex fault source.
 	"""
 	
-	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span):
+	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span,tol):
 		"""
 		fault_surf: complex fault surface
 		freq_mag_dist: frequency magnitude distribution
@@ -114,6 +114,7 @@ class ComplexFaultSource:
 		rup_aspect_ratio: rupture aspect ratio (> 0)
 		tectonic_region_type: tectonic region type
 		time_span: time span (>= 0)
+		tol = tolerance level (in percent)
 		"""
 		#TODO: check rake >= -180 & rake <=180
 		#TODO: check rup_aspect_ratio > 0
@@ -125,50 +126,93 @@ class ComplexFaultSource:
 		self.rup_aspect_ratio = rup_aspect_ratio
 		self.tectonic_region_type = tectonic_region_type
 		self.time_span = time_span
+		self.tol = tol
 		
 	def getRuptureData(self):
+		"""
+		Return list containing rupture data. The length of the list
+		corresponds to the number of ruptures. Each entry in the list
+		is a dictionary with the following keys:
+		- 'mag': rupture magnitude
+		- 'rate': rupture annual occurrence rate
+		- 'first': tuple (i,j) containing indexes of rupture's first mesh point
+		- 'last_length': tuple (i,j) containing indexes of rupture's last mesh point along length
+		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
+		"""
 		
 		rupture_data = []
+		
+		fault_surface_area = getSurfacePortionArea(self.fault_surf.surface,(0,0),(0,self.fault_surf.surface.shape[1] - 1),(self.fault_surf.surface.shape[0]-1,0))
 			
 		occurrence_rates = self.freq_mag_dist.getAnnualOccurrenceRates()
 		
+		# loop over magnitude values, For each magnitude compute expected rupture area.
+		# If expected rupture area is greater than fault surface area, return fault surface
+		# as rupture surface.
+		# If expected rupture area is smaller than fault surface area, loop over fault source
+		# nodes (except nodes on the fault bottom and right edges).
+		# For each node (for the purpose of the algorithm identified by the name nucleation node),
+		# determine rupture surface last node along length and along width.
+		# Along length and width last nodes are determined by finding the nodes
+		# (along rupture horizontal and vertical edges) that defines a rupture surface with an area
+		# that is closest to the expected rupture area.
+		# if the rupture surface node opposite to the nucleation node, lies on a fault surface edge
+		# then the rupture is considered only if the percentage difference between rupture surface
+		# area and expted rupture area is smaller than a tolerance level.
 		for mag,rate in occurrence_rates:
 			
-			# compute rupture area
-			rup_area = self.mag_scaling_rel.getMedianArea(mag)
+			# compute expected rupture surface area
+			ex_rup_area = self.mag_scaling_rel.getMedianArea(mag)
 			
-			first = (0,0)
-			last_length = (0,self.fault_surf.surface.shape[1] - 1)
-			last_width = (self.fault_surf.surface.shape[0]-1,0)
-			if rup_area >= getSurfacePortionArea(self.fault_surf.surface,first,last_length,last_width):
+			if ex_rup_area >= fault_surface_area:
 				# return indexes corresponding to the entire surface
-				print 'ciccio'
+				data = {'mag':mag,
+						'rate':rate,
+						'first':(0,0),
+						'last_length':(0,self.fault_surf.surface.shape[1] - 1),
+						'last_width':(self.fault_surf.surface.shape[0]-1,0)}
+				rupture_data.append(data)
 			else:
 				# loop over ruptures' upper left corners
 				for i in range(self.fault_surf.surface.shape[0] - 1):
 					for j in range(self.fault_surf.surface.shape[1] - 1):
 						
 						# extract lines corresponding to length and width
-						line_l = Line(surface[i,j:].tolist())
-						line_w = Line(surface[i:,j].tolist())
+						line_l = Line(self.fault_surf.surface[i,j:].tolist())
+						line_w = Line(self.fault_surf.surface[i:,j].tolist())
 						
-						# compute first maximum length from current upper left corner of
-						# the rupture
+						# compute length from current upper left corner of
+						# the rupture 
 						max_length = line_l.getLength()
 						
 						# compute rupture length corresponding to rupture area closest to expected rupture area
-						args = (self.fault_surf.surface,(i,j),self.rup_aspect_ratio,rup_area)			
+						print 'optimizing...'
+						args = (self.fault_surf.surface,(i,j),self.rup_aspect_ratio,ex_rup_area)			
 						xtol = self.fault_surf.mesh_spacing/2
 						length, fval, ierr, numfunc = optimize.fminbound(ruptureAreaRelativeDiff, 0.0, max_length, args=args, xtol=xtol, maxfun=500, full_output=1, disp=0)
 						
 						# get points corresponding to length and width as obtained from length / aspect_ratio
 						last_length = numpy.where(self.fault_surf.surface == line_l.getClosestPoint(length))
 						last_width = numpy.where(self.fault_surf.surface == line_w.getClosestPoint(length/self.rup_aspect_ratio))
+						last_length  = (last_length[0][0],last_length[1][0])
+						last_width = (last_width[0][0],last_width[1][0])
 						
+						print 'computing area...'
+						# compute rupture surface area
+						comp_rup_area = getSurfacePortionArea(self.fault_surf.surface,(i,j),last_length,last_width)
+						
+						# compute percentage difference between expected and computed area
+						# if higher than tolerance, break
+						percent_relative_diff = 100 * abs(comp_rup_area - ex_rup_area) / ex_rup_area
+						print (i,j)
+						print 'expected rupture area: %s, computed rupture area: %s, percent diff: %s' % (ex_rup_area,comp_rup_area,percent_relative_diff)
+						if last_width[0] == self.fault_surf.surface.shape[0] - 1 or last_length[1] == self.fault_surf.surface.shape[1] - 1:
+							if percent_relative_diff > self.tol:
+								break
 
 def ruptureAreaRelativeDiff(length,surface,first,aspect_ratio,expected_area):
 	"""
-	Computes relative difference between 'expected_area', and
+	Computes relative percent difference between 'expected_area', and
 	surface portion area defined over 'surface', and identified
 	by:
 	- length: portion length (along top edge)
@@ -187,10 +231,12 @@ def ruptureAreaRelativeDiff(length,surface,first,aspect_ratio,expected_area):
 	# and compute corresponding area
 	last_length = numpy.where(surface == line_l.getClosestPoint(length))
 	last_width = numpy.where(surface == line_w.getClosestPoint(width))
+	last_length  = (last_length[0][0],last_length[1][0])
+	last_width = (last_width[0][0],last_width[1][0])
 	computed_area =  getSurfacePortionArea(surface,first,last_length,last_width)
 	
-	# return relative differences
-	return abs(computed_area - expected_area) / expected_area
+	# return (percent) relative differences
+	return 100 * abs(computed_area - expected_area) / expected_area
 						
 def getSurfacePortionArea(surface,first,last_length,last_width):
 	"""
