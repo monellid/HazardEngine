@@ -2,8 +2,10 @@ from math import *
 from geo import *
 from rup import *
 import numpy
-from scipy import optimize
-
+import matplotlib
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import pyproj
 
 class ComplexFaultSurface:
 	"""
@@ -105,7 +107,7 @@ class ComplexFaultSource:
 	Class defining complex fault source.
 	"""
 	
-	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span,tol):
+	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span,area_tol,aspect_ratio_tol):
 		"""
 		fault_surf: complex fault surface
 		freq_mag_dist: frequency magnitude distribution
@@ -126,7 +128,8 @@ class ComplexFaultSource:
 		self.rup_aspect_ratio = rup_aspect_ratio
 		self.tectonic_region_type = tectonic_region_type
 		self.time_span = time_span
-		self.tol = tol
+		self.area_tol = area_tol
+		self.aspect_ratio_tol = aspect_ratio_tol
 		
 	def getRuptureData(self):
 		"""
@@ -142,9 +145,117 @@ class ComplexFaultSource:
 		
 		rupture_data = []
 		
+		# compute fault surface area
 		fault_surface_area = getSurfacePortionArea(self.fault_surf.surface,(0,0),(0,self.fault_surf.surface.shape[1] - 1),(self.fault_surf.surface.shape[0]-1,0))
-			
+		
+		# computes surface mesh cells areas, lengths and widths
+		cells_area = numpy.ndarray([self.fault_surf.surface.shape[0]-1,self.fault_surf.surface.shape[1]-1])
+		cells_lengths = numpy.ndarray([self.fault_surf.surface.shape[0]-1,self.fault_surf.surface.shape[1]-1])
+		cells_widths = numpy.ndarray([self.fault_surf.surface.shape[0]-1,self.fault_surf.surface.shape[1]-1])
+		for i in range(self.fault_surf.surface.shape[0]-1):
+			for j in range(self.fault_surf.surface.shape[1]-1):
+				cells_area[i,j] = getSurfacePortionArea(self.fault_surf.surface,(i,j),(i,j+1),(i+1,j))
+				cells_lengths[i,j] = Line(self.fault_surf.surface[i,j:j+2].tolist()).getLength()
+				cells_widths[i,j] = Line(self.fault_surf.surface[i:i+2,j].tolist()).getLength()
+		
 		occurrence_rates = self.freq_mag_dist.getAnnualOccurrenceRates()
+		
+		for mag,rate in occurrence_rates:
+			
+			# compute expected rupture surface area
+			ex_rup_area = self.mag_scaling_rel.getMedianArea(mag)
+			
+			if ex_rup_area >= fault_surface_area:
+				# return indexes corresponding to the entire surface
+				data = {'mag':mag,
+						'rate':rate,
+						'first':(0,0),
+						'last_length':(0,self.fault_surf.surface.shape[1] - 1),
+						'last_width':(self.fault_surf.surface.shape[0]-1,0)}
+				rupture_data.append(data)
+				
+			else:
+			
+				# loop over ruptures' upper left corners
+				for i in range(self.fault_surf.surface.shape[0] - 1):
+					for j in range(self.fault_surf.surface.shape[1] - 1):
+					
+						# compute possible rupture areas, starting from node
+						# (i,j) by accumulating cells areas along length (i.e. rows)
+						# and along width (i.e. columns)
+						rup_areas = numpy.add.accumulate(cells_area[i:,j:],axis=1)
+						rup_areas = numpy.add.accumulate(rup_areas,axis=0)
+						
+						# compute corresponding rupture aspect ratios,
+						# starting from node (i,j)
+						rup_lengths = numpy.add.accumulate(cells_lengths[i:,j:],axis=1)
+						rup_widths = numpy.add.accumulate(cells_widths[i:,j:],axis=0)
+						aspect_ratios = rup_lengths / rup_widths
+					
+						# extract node indexes giving rupture areas
+						# close to expected rupture area (within tolerance)
+						rup_indexes_area = numpy.where(100 * abs(rup_areas - ex_rup_area) / ex_rup_area<= self.area_tol)
+						rup_indexes_area_z = zip(rup_indexes_area[0],rup_indexes_area[1])
+						
+						# extract node indexes giving rupture aspect ratios
+						# close to given aspect ratio (within tolerance)
+						rup_indexes_ar = numpy.where(100 * abs(aspect_ratios - self.rup_aspect_ratio) / self.rup_aspect_ratio <= self.aspect_ratio_tol)
+						rup_indexes_ar_z = zip(rup_indexes_ar[0],rup_indexes_ar[1])
+						
+						# extract common indexes, if there are not continue
+						# that is, in the current position, the fault surface
+						# cannot accomodate a rupture with given area and aspect ratio
+						# (whitin tolerance)
+						rup_indexes = set(rup_indexes_area_z).intersection(set(rup_indexes_ar_z))
+						if len(rup_indexes) != 0:
+							rup_indexes_0 = numpy.array([idx0 for idx0,idx1 in rup_indexes])
+							rup_indexes_1 = numpy.array([idx1 for idx0,idx1 in rup_indexes])
+							rup_indexes = (rup_indexes_0,rup_indexes_1)
+						else:
+							continue
+						
+						# extract the rupture (among the ones that are consistent with
+						# the aspect ratio) that gives the rupture area closest to
+						# the expected rupture area
+						rup_index = numpy.where(abs(rup_areas - ex_rup_area) == numpy.min(abs(rup_areas[rup_indexes] - ex_rup_area)))
+						
+						# extract last nodes along length and width
+						# the plus 1 is due to the fact that rup_index
+						# corresponds to the cell index, while
+						# we are interested in the last node index
+						last_length = (i,j + rup_index[1][0] + 1)
+						last_width = (i + rup_index[0][0] + 1,j)
+						
+						# if rupture area is smaller than tolerance level,
+						# continue, (that is do not consider the rupture)
+						#rup_area = rup_areas[rup_index]
+						#percent_relative_diff = 100 * (ex_rup_area - rup_area) / ex_rup_area
+						#if percent_relative_diff > self.area_tol:
+						#	print 'expected area: %s, computed area; %s' % (ex_rup_area,rup_area)
+						#	continue
+						
+						# if rupture bottom or right edges lies on the fault bottom or right edges,
+						# compute percentage relative difference between expected and computed area,
+						# if higher than tolerance, break
+						#if last_width[0] == self.fault_surf.surface.shape[0] - 1 or last_length[1] == self.fault_surf.surface.shape[1] - 1:
+						#	rup_area = getSurfacePortionArea(self.fault_surf.surface,(i,j),last_length,last_width)
+						#	percent_relative_diff = 100 * abs(rup_area - ex_rup_area) / ex_rup_area
+						#	if percent_relative_diff > self.tol:
+						#		print 'expected area: %s, computed area; %s' % (ex_rup_area,rup_area)
+						#		continue
+								
+						data = {'mag':mag,
+								'rate':rate,
+								'first':(i,j),
+								'last_length':last_length,
+								'last_width':last_width}
+						rupture_data.append(data)
+						
+		return rupture_data
+		
+		
+		
+		#fault_surface_area = getSurfacePortionArea(self.fault_surf.surface,(0,0),(0,self.fault_surf.surface.shape[1] - 1),(self.fault_surf.surface.shape[0]-1,0))
 		
 		# loop over magnitude values, For each magnitude compute expected rupture area.
 		# If expected rupture area is greater than fault surface area, return fault surface
@@ -159,56 +270,59 @@ class ComplexFaultSource:
 		# if the rupture surface node opposite to the nucleation node, lies on a fault surface edge
 		# then the rupture is considered only if the percentage difference between rupture surface
 		# area and expted rupture area is smaller than a tolerance level.
-		for mag,rate in occurrence_rates:
+		#for mag,rate in occurrence_rates:
 			
 			# compute expected rupture surface area
-			ex_rup_area = self.mag_scaling_rel.getMedianArea(mag)
+			#ex_rup_area = self.mag_scaling_rel.getMedianArea(mag)
+			#ex_rup_length = sqrt(ex_rup_area * self.rup_aspect_ratio)
+			#ex_rup_width = ex_rup_area / ex_rup_length		
 			
-			if ex_rup_area >= fault_surface_area:
+			#if ex_rup_area >= fault_surface_area:
 				# return indexes corresponding to the entire surface
-				data = {'mag':mag,
-						'rate':rate,
-						'first':(0,0),
-						'last_length':(0,self.fault_surf.surface.shape[1] - 1),
-						'last_width':(self.fault_surf.surface.shape[0]-1,0)}
-				rupture_data.append(data)
-			else:
-				# loop over ruptures' upper left corners
-				for i in range(self.fault_surf.surface.shape[0] - 1):
-					for j in range(self.fault_surf.surface.shape[1] - 1):
-						
-						# extract lines corresponding to length and width
-						line_l = Line(self.fault_surf.surface[i,j:].tolist())
-						line_w = Line(self.fault_surf.surface[i:,j].tolist())
+			#	data = {'mag':mag,
+			#			'rate':rate,
+			#			'first':(0,0),
+			#			'last_length':(0,self.fault_surf.surface.shape[1] - 1),
+			#			'last_width':(self.fault_surf.surface.shape[0]-1,0)}
+			#	rupture_data.append(data)
+			#else:
+			#	# loop over ruptures' upper left corners
+			#	for i in range(self.fault_surf.surface.shape[0] - 1):
+			#		for j in range(self.fault_surf.surface.shape[1] - 1):
+			#			
+			#			# extract lines corresponding to length and width
+			#			line_l = Line(self.fault_surf.surface[i,j:].tolist())
+			#			line_w = Line(self.fault_surf.surface[i:,j].tolist())
 						
 						# compute length from current upper left corner of
 						# the rupture 
-						max_length = line_l.getLength()
+			#			max_length = line_l.getLength()
 						
 						# compute rupture length corresponding to rupture area closest to expected rupture area
-						print 'optimizing...'
-						args = (self.fault_surf.surface,(i,j),self.rup_aspect_ratio,ex_rup_area)			
-						xtol = self.fault_surf.mesh_spacing/2
-						length, fval, ierr, numfunc = optimize.fminbound(ruptureAreaRelativeDiff, 0.0, max_length, args=args, xtol=xtol, maxfun=500, full_output=1, disp=0)
+			#			print 'optimizing...'
+			#			args = (self.fault_surf.surface,(i,j),self.rup_aspect_ratio,ex_rup_area)			
+			#			xtol = self.fault_surf.mesh_spacing/2
+			#			maxfun = len(line_l.point_list)/2
+			#			length= optimize.fminbound(ruptureAreaRelativeDiff, 0, max_length, args=args, xtol=xtol, maxfun=5, full_output=0, disp=0)
 						
 						# get points corresponding to length and width as obtained from length / aspect_ratio
-						last_length = numpy.where(self.fault_surf.surface == line_l.getClosestPoint(length))
-						last_width = numpy.where(self.fault_surf.surface == line_w.getClosestPoint(length/self.rup_aspect_ratio))
-						last_length  = (last_length[0][0],last_length[1][0])
-						last_width = (last_width[0][0],last_width[1][0])
+			#			last_length = numpy.where(self.fault_surf.surface == line_l.getClosestPoint(length))
+			#			last_width = numpy.where(self.fault_surf.surface == line_w.getClosestPoint(length/self.rup_aspect_ratio))
+			#			last_length  = (last_length[0][0],last_length[1][0])
+			#			last_width = (last_width[0][0],last_width[1][0])
 						
-						print 'computing area...'
+			#			print 'computing area...'
 						# compute rupture surface area
-						comp_rup_area = getSurfacePortionArea(self.fault_surf.surface,(i,j),last_length,last_width)
+			#			comp_rup_area = getSurfacePortionArea(self.fault_surf.surface,(i,j),last_length,last_width)
 						
 						# compute percentage difference between expected and computed area
 						# if higher than tolerance, break
-						percent_relative_diff = 100 * abs(comp_rup_area - ex_rup_area) / ex_rup_area
-						print (i,j)
-						print 'expected rupture area: %s, computed rupture area: %s, percent diff: %s' % (ex_rup_area,comp_rup_area,percent_relative_diff)
-						if last_width[0] == self.fault_surf.surface.shape[0] - 1 or last_length[1] == self.fault_surf.surface.shape[1] - 1:
-							if percent_relative_diff > self.tol:
-								break
+			#			percent_relative_diff = 100 * abs(comp_rup_area - ex_rup_area) / ex_rup_area
+			#			print (i,j)
+			#			print 'expected rupture area: %s, computed rupture area: %s, percent diff: %s' % (ex_rup_area,comp_rup_area,percent_relative_diff)
+			#			if last_width[0] == self.fault_surf.surface.shape[0] - 1 or last_length[1] == self.fault_surf.surface.shape[1] - 1:
+			#				if percent_relative_diff > self.tol:
+			#					break
 
 def ruptureAreaRelativeDiff(length,surface,first,aspect_ratio,expected_area):
 	"""
@@ -236,7 +350,9 @@ def ruptureAreaRelativeDiff(length,surface,first,aspect_ratio,expected_area):
 	computed_area =  getSurfacePortionArea(surface,first,last_length,last_width)
 	
 	# return (percent) relative differences
-	return 100 * abs(computed_area - expected_area) / expected_area
+	f =  100 * abs(computed_area - expected_area) / expected_area
+	
+	return f
 						
 def getSurfacePortionArea(surface,first,last_length,last_width):
 	"""
@@ -264,3 +380,109 @@ def getSurfacePortionArea(surface,first,last_length,last_width):
 			area = area + area_t1 + area_t2
 
 	return area
+	
+def plotComplexFaultSource(src):
+	"""
+	Plots complex fault source (src)
+	"""
+	
+	#matplotlib.rc('axes', facecolor='k')
+	# create figure
+	fig = plt.figure()
+	ax = fig.gca(projection='3d')
+	
+	# get orthogonal projection centered around
+	# fault top trace middle point
+	mean_lon = (src.fault_surf.fault_top_edge.point_list[0].longitude + \
+				src.fault_surf.fault_top_edge.point_list[-1].longitude) / 2
+	mean_lat = (src.fault_surf.fault_top_edge.point_list[0].latitude + \
+				src.fault_surf.fault_top_edge.point_list[-1].latitude) / 2
+	proj = pyproj.Proj(proj='ortho', lat_0=mean_lat, lon_0=mean_lon, units='km', preserve_units=True)
+	
+	# extract fault and bottom edges coordinates
+	x_top_edge,y_top_edge,depths_top_edge = getLineCartesianCoordinates(proj,src.fault_surf.fault_top_edge)
+	x_bottom_edge, y_bottom_edge, depths_bottom_edge = getLineCartesianCoordinates(proj,src.fault_surf.fault_bottom_edge)
+	
+	# extract fault intermediate edge coordinates (if defined)
+	if src.fault_surf.fault_intermediate_edge is not None:
+		x_intermediate_edge, y_intermediate_edge, depths_intermediate_edge = \
+			getLineCartesianCoordinates(proj,src.fault_surf.fault_intermediate_edge)
+		
+	# extract surface points coordinates
+	x_surf_points, y_surf_points, depths_surf_points = getSurfaceCartesianCoordinates(proj,src.fault_surf.surface)
+	
+	# plot top edge
+	ax.plot(x_top_edge, y_top_edge, depths_top_edge, label='Top edge',color='r',linewidth=3)
+	# plot intermediate edge
+	if src.fault_surf.fault_intermediate_edge is not None:
+		ax.plot(x_intermediate_edge, y_intermediate_edge, depths_intermediate_edge, label='Intermediate edge',color='g',linewidth=3)
+	# plot bottom edge
+	ax.plot(x_bottom_edge, y_bottom_edge, depths_bottom_edge, label='Bottom edge',color='b',linewidth=3)
+	
+	# plot surface mesh points
+	ax.scatter(x_surf_points, y_surf_points, depths_surf_points, c='w', marker='o')
+	
+	ax.set_xlabel('Along longitude (km)')
+	ax.set_ylabel('Along latitude (km)')
+	ax.set_zlabel('Along depth (km)')
+	ax.legend()
+	
+	plt.savefig('fault_surface.png', dpi=100)
+	del ax
+	plt.clf()
+	
+	# then plot ruptures
+	rupture_data = src.getRuptureData()
+	i = 0
+	for data in rupture_data:
+		i += 1
+		fig = plt.figure()
+		ax = fig.gca(projection='3d')
+		
+		# plot fault surface points coordiantes
+		ax.scatter(x_surf_points, y_surf_points, depths_surf_points, color='k', marker='.')
+		
+		# extract rupture surface points coordinates
+		first = data['first']
+		last_length = data['last_length']
+		last_width = data['last_width']
+		surf = src.fault_surf.surface[first[0]:last_width[0]+1,first[1]:last_length[1]+1]
+		x_rupsurf_points, y_rupsurf_points, depths_rupsurf_points = getSurfaceCartesianCoordinates(proj,surf)
+		
+		# plot rupture surface mesh points
+		ax.scatter(x_rupsurf_points, y_rupsurf_points, depths_rupsurf_points, c='m', marker='o',alpha=1.0)
+		
+		# compute rupture area
+		rup_area = getSurfacePortionArea(src.fault_surf.surface,first,last_length,last_width)
+		# compute expected rupture area
+		ex_rup_area = src.mag_scaling_rel.getMedianArea(data['mag'])
+		title = 'predicted rupture area (km^2): %s\nexpected rupture area (km^2): %s' % (rup_area, ex_rup_area)
+		ax.set_title(title)
+
+		ax.set_xlabel('Along longitude (km)')
+		ax.set_ylabel('Along latitude (km)')
+		ax.set_zlabel('Along depth (km)')
+		ax.legend()
+		
+		filename = str('rup%s' % i) + '.png'
+		plt.savefig(filename, dpi=100)
+		del ax
+		plt.clf()
+	
+def getLineCartesianCoordinates(proj,line):
+	lons = [p.longitude for p in line.point_list]
+	lats = [p.latitude for p in line.point_list]
+	depths = [-p.depth for p in line.point_list]
+	x, y = proj(lons,lats)
+	return x,y,depths
+	
+def getSurfaceCartesianCoordinates(proj,surf):
+	"""
+	surf: 2D numpy array of Locations
+	"""
+	surf_points = surf.flatten().tolist()
+	lons_surf_points = [p.longitude for p in surf_points]
+	lats_surf_points = [p.latitude for p in surf_points]
+	depths_surf_points = [-p.depth for p in surf_points]
+	x_surf_points, y_surf_points = proj(lons_surf_points,lats_surf_points)
+	return x_surf_points, y_surf_points, depths_surf_points
