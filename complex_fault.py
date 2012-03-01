@@ -204,20 +204,20 @@ class ComplexFaultSource:
 							continue
 						
 						# extract node indexes giving rupture aspect ratios
-						# close to given aspect ratio (within tolerance)
+						# close to given aspect ratio (within increasing tolerance)
 						rup_indexes_ar = numpy.where(100 * abs(aspect_ratios - self.rup_aspect_ratio) / self.rup_aspect_ratio <= self.aspect_ratio_tol)
 						rup_indexes_ar_z = zip(rup_indexes_ar[0],rup_indexes_ar[1])
 						
-						# extract common indexes, if there are not extract
-						# rupture having the closest area to the expected area
-						# independently of the aspect ratio
+						# extract common indexes, if there are not continue (that is,
+						# in the current position the fault surface cannot accomodate a
+						# rupture with the expected area and aspect ratio [within tolerance])
 						rup_indexes = set(rup_indexes_area_z).intersection(set(rup_indexes_ar_z))
 						if len(rup_indexes) != 0:
 							rup_indexes_0 = numpy.array([idx0 for idx0,idx1 in rup_indexes])
 							rup_indexes_1 = numpy.array([idx1 for idx0,idx1 in rup_indexes])
 							rup_indexes = (rup_indexes_0,rup_indexes_1)
 						else:
-							rup_indexes = rup_indexes_area
+							continue
 						
 						# extract the rupture that gives the rupture area closest to
 						# the expected rupture area
