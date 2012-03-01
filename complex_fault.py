@@ -197,52 +197,38 @@ class ComplexFaultSource:
 						rup_indexes_area = numpy.where(100 * abs(rup_areas - ex_rup_area) / ex_rup_area<= self.area_tol)
 						rup_indexes_area_z = zip(rup_indexes_area[0],rup_indexes_area[1])
 						
+						# if there are not just continue (that is, in the current position
+						# the fault surface cannot accomodate a rupture with the
+						# expected area [within tolerance])
+						if len(rup_indexes_area[0]) == 0:
+							continue
+						
 						# extract node indexes giving rupture aspect ratios
 						# close to given aspect ratio (within tolerance)
 						rup_indexes_ar = numpy.where(100 * abs(aspect_ratios - self.rup_aspect_ratio) / self.rup_aspect_ratio <= self.aspect_ratio_tol)
 						rup_indexes_ar_z = zip(rup_indexes_ar[0],rup_indexes_ar[1])
 						
-						# extract common indexes, if there are not continue
-						# that is, in the current position, the fault surface
-						# cannot accomodate a rupture with given area and aspect ratio
-						# (whitin tolerance)
+						# extract common indexes, if there are not extract
+						# rupture having the closest area to the expected area
+						# independently of the aspect ratio
 						rup_indexes = set(rup_indexes_area_z).intersection(set(rup_indexes_ar_z))
 						if len(rup_indexes) != 0:
 							rup_indexes_0 = numpy.array([idx0 for idx0,idx1 in rup_indexes])
 							rup_indexes_1 = numpy.array([idx1 for idx0,idx1 in rup_indexes])
 							rup_indexes = (rup_indexes_0,rup_indexes_1)
 						else:
-							continue
+							rup_indexes = rup_indexes_area
 						
-						# extract the rupture (among the ones that are consistent with
-						# the aspect ratio) that gives the rupture area closest to
+						# extract the rupture that gives the rupture area closest to
 						# the expected rupture area
 						rup_index = numpy.where(abs(rup_areas - ex_rup_area) == numpy.min(abs(rup_areas[rup_indexes] - ex_rup_area)))
 						
 						# extract last nodes along length and width
 						# the plus 1 is due to the fact that rup_index
 						# corresponds to the cell index, while
-						# we are interested in the last node index
+						# we are interested in the surface last node index
 						last_length = (i,j + rup_index[1][0] + 1)
 						last_width = (i + rup_index[0][0] + 1,j)
-						
-						# if rupture area is smaller than tolerance level,
-						# continue, (that is do not consider the rupture)
-						#rup_area = rup_areas[rup_index]
-						#percent_relative_diff = 100 * (ex_rup_area - rup_area) / ex_rup_area
-						#if percent_relative_diff > self.area_tol:
-						#	print 'expected area: %s, computed area; %s' % (ex_rup_area,rup_area)
-						#	continue
-						
-						# if rupture bottom or right edges lies on the fault bottom or right edges,
-						# compute percentage relative difference between expected and computed area,
-						# if higher than tolerance, break
-						#if last_width[0] == self.fault_surf.surface.shape[0] - 1 or last_length[1] == self.fault_surf.surface.shape[1] - 1:
-						#	rup_area = getSurfacePortionArea(self.fault_surf.surface,(i,j),last_length,last_width)
-						#	percent_relative_diff = 100 * abs(rup_area - ex_rup_area) / ex_rup_area
-						#	if percent_relative_diff > self.tol:
-						#		print 'expected area: %s, computed area; %s' % (ex_rup_area,rup_area)
-						#		continue
 								
 						data = {'mag':mag,
 								'rate':rate,
@@ -250,6 +236,11 @@ class ComplexFaultSource:
 								'last_length':last_length,
 								'last_width':last_width}
 						rupture_data.append(data)
+						
+						# if the rupture touches the right boundary of the fault, break,
+						# that is continue on the next row
+						if last_length[1] == self.fault_surf.surface.shape[1] - 1:
+							break
 						
 		return rupture_data
 		
