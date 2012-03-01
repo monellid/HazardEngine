@@ -107,7 +107,7 @@ class ComplexFaultSource:
 	Class defining complex fault source.
 	"""
 	
-	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span,area_tol,aspect_ratio_tol):
+	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span,area_tol):
 		"""
 		fault_surf: complex fault surface
 		freq_mag_dist: frequency magnitude distribution
@@ -129,7 +129,6 @@ class ComplexFaultSource:
 		self.tectonic_region_type = tectonic_region_type
 		self.time_span = time_span
 		self.area_tol = area_tol
-		self.aspect_ratio_tol = aspect_ratio_tol
 		
 	def getRuptureData(self):
 		"""
@@ -160,10 +159,14 @@ class ComplexFaultSource:
 		
 		occurrence_rates = self.freq_mag_dist.getAnnualOccurrenceRates()
 		
+		# TODO: maybe self.area_tol = 100 * numpy.max(cells_area) / ex_rup_area
+		
 		for mag,rate in occurrence_rates:
 			
-			# compute expected rupture surface area
+			# compute expected rupture surface area, length and width
 			ex_rup_area = self.mag_scaling_rel.getMedianArea(mag)
+			ex_rup_length = sqrt(ex_rup_area * self.rup_aspect_ratio)
+			ex_rup_width = ex_rup_area / ex_rup_length
 			
 			if ex_rup_area >= fault_surface_area:
 				# return indexes corresponding to the entire surface
@@ -191,7 +194,7 @@ class ComplexFaultSource:
 						rup_lengths = numpy.add.accumulate(cells_lengths[i:,j:],axis=1)
 						rup_widths = numpy.add.accumulate(cells_widths[i:,j:],axis=0)
 						aspect_ratios = rup_lengths / rup_widths
-					
+						
 						# extract node indexes giving rupture areas
 						# close to expected rupture area (within tolerance)
 						rup_indexes_area = numpy.where(100 * abs(rup_areas - ex_rup_area) / ex_rup_area<= self.area_tol)
@@ -203,25 +206,10 @@ class ComplexFaultSource:
 						if len(rup_indexes_area[0]) == 0:
 							continue
 						
-						# extract node indexes giving rupture aspect ratios
-						# close to given aspect ratio (within increasing tolerance)
-						rup_indexes_ar = numpy.where(100 * abs(aspect_ratios - self.rup_aspect_ratio) / self.rup_aspect_ratio <= self.aspect_ratio_tol)
-						rup_indexes_ar_z = zip(rup_indexes_ar[0],rup_indexes_ar[1])
-						
-						# extract common indexes, if there are not continue (that is,
-						# in the current position the fault surface cannot accomodate a
-						# rupture with the expected area and aspect ratio [within tolerance])
-						rup_indexes = set(rup_indexes_area_z).intersection(set(rup_indexes_ar_z))
-						if len(rup_indexes) != 0:
-							rup_indexes_0 = numpy.array([idx0 for idx0,idx1 in rup_indexes])
-							rup_indexes_1 = numpy.array([idx1 for idx0,idx1 in rup_indexes])
-							rup_indexes = (rup_indexes_0,rup_indexes_1)
-						else:
-							continue
-						
-						# extract the rupture that gives the rupture area closest to
-						# the expected rupture area
-						rup_index = numpy.where(abs(rup_areas - ex_rup_area) == numpy.min(abs(rup_areas[rup_indexes] - ex_rup_area)))
+						# among the ruptures consistent with the expected rupture area,
+						# extract the one that has the aspect ratio closest to the one
+						# given in the constructor
+						rup_index = numpy.where(abs(aspect_ratios - self.rup_aspect_ratio) == numpy.min(abs(aspect_ratios[rup_indexes_area] - self.rup_aspect_ratio)))
 						
 						# extract last nodes along length and width
 						# the plus 1 is due to the fact that rup_index
