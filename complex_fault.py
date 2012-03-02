@@ -182,41 +182,69 @@ class ComplexFaultSource:
 				# loop over ruptures' upper left corners
 				for i in range(self.fault_surf.surface.shape[0] - 1):
 					for j in range(self.fault_surf.surface.shape[1] - 1):
-					
+						
+						# compute possible rupture lengths and width
+						rup_lengths = numpy.add.accumulate(cells_lengths[i:,j:],axis=1)
+						#rup_widths = numpy.add.accumulate(cells_widths[i:,j:],axis=0)
+						
+						# extract the node that corresponds to a length closest to
+						# the expected one
+						last_length_idx = numpy.where(abs(rup_lengths[0,:] - ex_rup_length) == numpy.min(abs(rup_lengths[0,:] - ex_rup_length)))
+						
 						# compute possible rupture areas, starting from node
 						# (i,j) by accumulating cells areas along length (i.e. rows)
 						# and along width (i.e. columns)
 						rup_areas = numpy.add.accumulate(cells_area[i:,j:],axis=1)
 						rup_areas = numpy.add.accumulate(rup_areas,axis=0)
 						
-						# compute corresponding rupture aspect ratios,
-						# starting from node (i,j)
-						rup_lengths = numpy.add.accumulate(cells_lengths[i:,j:],axis=1)
-						rup_widths = numpy.add.accumulate(cells_widths[i:,j:],axis=0)
-						aspect_ratios = rup_lengths / rup_widths
-						
-						# extract node indexes giving rupture areas
-						# close to expected rupture area (within tolerance)
-						rup_indexes_area = numpy.where(100 * abs(rup_areas - ex_rup_area) / ex_rup_area<= self.area_tol)
-						rup_indexes_area_z = zip(rup_indexes_area[0],rup_indexes_area[1])
-						
-						# if there are not just continue (that is, in the current position
-						# the fault surface cannot accomodate a rupture with the
-						# expected area [within tolerance])
-						if len(rup_indexes_area[0]) == 0:
-							continue
-						
-						# among the ruptures consistent with the expected rupture area,
-						# extract the one that has the aspect ratio closest to the one
-						# given in the constructor
-						rup_index = numpy.where(abs(aspect_ratios - self.rup_aspect_ratio) == numpy.min(abs(aspect_ratios[rup_indexes_area] - self.rup_aspect_ratio)))
+						# extract width giving area closest to the expected one
+						last_width_idx = numpy.where(abs(rup_areas[:,last_length_idx[0][0]] - ex_rup_area) == numpy.min(abs(rup_areas[:,last_length_idx[0][0]] - ex_rup_area)))
+						print last_width_idx
+						# extract the node that corresponds to a width closest to
+						# the expected one
+						#last_width_idx = numpy.where(abs(rup_widths[:,0] - ex_rup_width) == numpy.min(abs(rup_widths[:,0] - ex_rup_width)))
 						
 						# extract last nodes along length and width
 						# the plus 1 is due to the fact that rup_index
 						# corresponds to the cell index, while
 						# we are interested in the surface last node index
-						last_length = (i,j + rup_index[1][0] + 1)
-						last_width = (i + rup_index[0][0] + 1,j)
+						last_length = (i,j + last_length_idx[0][0] + 1)
+						last_width = (i + last_width_idx[0][0] + 1,j)
+						
+						# compute possible rupture areas, starting from node
+						# (i,j) by accumulating cells areas along length (i.e. rows)
+						# and along width (i.e. columns)
+						#rup_areas = numpy.add.accumulate(cells_area[i:,j:],axis=1)
+						#rup_areas = numpy.add.accumulate(rup_areas,axis=0)
+						
+						# compute corresponding rupture aspect ratios,
+						# starting from node (i,j)
+						#rup_lengths = numpy.add.accumulate(cells_lengths[i:,j:],axis=1)
+						#rup_widths = numpy.add.accumulate(cells_widths[i:,j:],axis=0)
+						#aspect_ratios = rup_lengths / rup_widths
+						
+						# extract node indexes giving rupture areas
+						# close to expected rupture area (within tolerance)
+						#rup_indexes_area = numpy.where(100 * abs(rup_areas - ex_rup_area) / ex_rup_area<= self.area_tol)
+						#rup_indexes_area_z = zip(rup_indexes_area[0],rup_indexes_area[1])
+						
+						# if there are not just continue (that is, in the current position
+						# the fault surface cannot accomodate a rupture with the
+						# expected area [within tolerance])
+						#if len(rup_indexes_area[0]) == 0:
+						#	continue
+						
+						# among the ruptures consistent with the expected rupture area,
+						# extract the one that has the aspect ratio closest to the one
+						# given in the constructor
+						#rup_index = numpy.where(abs(aspect_ratios - self.rup_aspect_ratio) == numpy.min(abs(aspect_ratios[rup_indexes_area] - self.rup_aspect_ratio)))
+						
+						# extract last nodes along length and width
+						# the plus 1 is due to the fact that rup_index
+						# corresponds to the cell index, while
+						# we are interested in the surface last node index
+						#last_length = (i,j + rup_index[1][0] + 1)
+						#last_width = (i + rup_index[0][0] + 1,j)
 								
 						data = {'mag':mag,
 								'rate':rate,
