@@ -107,7 +107,7 @@ class ComplexFaultSource:
 	Class defining complex fault source.
 	"""
 	
-	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span,area_tol):
+	def __init__(self,fault_surf,freq_mag_dist,mag_scaling_rel,rake,rup_aspect_ratio,tectonic_region_type,time_span):
 		"""
 		fault_surf: complex fault surface
 		freq_mag_dist: frequency magnitude distribution
@@ -116,7 +116,6 @@ class ComplexFaultSource:
 		rup_aspect_ratio: rupture aspect ratio (> 0)
 		tectonic_region_type: tectonic region type
 		time_span: time span (>= 0)
-		tol = tolerance level (in percent)
 		"""
 		#TODO: check rake >= -180 & rake <=180
 		#TODO: check rup_aspect_ratio > 0
@@ -128,7 +127,6 @@ class ComplexFaultSource:
 		self.rup_aspect_ratio = rup_aspect_ratio
 		self.tectonic_region_type = tectonic_region_type
 		self.time_span = time_span
-		self.area_tol = area_tol
 		
 	def getRuptureData(self):
 		"""
@@ -159,8 +157,6 @@ class ComplexFaultSource:
 		
 		occurrence_rates = self.freq_mag_dist.getAnnualOccurrenceRates()
 		
-		# TODO: maybe self.area_tol = 100 * numpy.max(cells_area) / ex_rup_area
-		
 		for mag,rate in occurrence_rates:
 			
 			# compute expected rupture surface area, length and width
@@ -183,9 +179,8 @@ class ComplexFaultSource:
 				for i in range(self.fault_surf.surface.shape[0] - 1):
 					for j in range(self.fault_surf.surface.shape[1] - 1):
 						
-						# compute possible rupture lengths and width
+						# compute possible rupture lengths from current node
 						rup_lengths = numpy.add.accumulate(cells_lengths[i:,j:],axis=1)
-						#rup_widths = numpy.add.accumulate(cells_widths[i:,j:],axis=0)
 						
 						# extract the node that corresponds to a length closest to
 						# the expected one
@@ -197,12 +192,15 @@ class ComplexFaultSource:
 						rup_areas = numpy.add.accumulate(cells_area[i:,j:],axis=1)
 						rup_areas = numpy.add.accumulate(rup_areas,axis=0)
 						
-						# extract width giving area closest to the expected one
+						# extract node corresponding to a width giving area closest to the expected one
+						# but keeping the along length node fixed
 						last_width_idx = numpy.where(abs(rup_areas[:,last_length_idx[0][0]] - ex_rup_area) == numpy.min(abs(rup_areas[:,last_length_idx[0][0]] - ex_rup_area)))
-						print last_width_idx
-						# extract the node that corresponds to a width closest to
-						# the expected one
-						#last_width_idx = numpy.where(abs(rup_widths[:,0] - ex_rup_width) == numpy.min(abs(rup_widths[:,0] - ex_rup_width)))
+						
+						# if the last node along width lies on the fault bottom boundary
+						# adjust rupture length so as to reach the optimal area value
+						# that is, sacrifice rupture aspect ratio for rupture area
+						if i + last_width_idx[0][0] + 1 == self.fault_surf.surface.shape[0] - 1:
+							last_length_idx = numpy.where(abs(rup_areas[last_width_idx[0][0],:] - ex_rup_area) == numpy.min(abs(rup_areas[last_width_idx[0][0],:] - ex_rup_area)))
 						
 						# extract last nodes along length and width
 						# the plus 1 is due to the fact that rup_index
@@ -257,6 +255,11 @@ class ComplexFaultSource:
 						# that is continue on the next row
 						if last_length[1] == self.fault_surf.surface.shape[1] - 1:
 							break
+							
+					# we stop at the first rupture touching both the bottom and right fault
+					# boundaries
+					if rupture_data[-1]['last_length'][1] == self.fault_surf.surface.shape[1] - 1 and rupture_data[-1]['last_width'][0] == self.fault_surf.surface.shape[0] - 1:
+						break
 						
 		return rupture_data
 		
