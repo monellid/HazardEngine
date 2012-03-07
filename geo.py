@@ -11,6 +11,10 @@ class Point:
 	Depth > 0 identifies a point below the Earth surface.
 	Depth < 0 identifies a point above the Earth surface.
 	"""
+	
+	#: The distance between two points for them to be considered equal,
+    #: in km.
+	EQUALITY_DISTANCE = 1e-3
 
 	def __init__(self,longitude,latitude,depth=0):
 		"""
@@ -19,6 +23,11 @@ class Point:
 		self.longitude = longitude
 		self.latitude = latitude
 		self.depth = depth
+		
+	def __eq__(self, other):
+		if other == None:
+			return False
+		return abs(self.getDistance(other)) <= self.EQUALITY_DISTANCE
 
 	def getPoint(self,horizontal_distance,vertical_distance,azimuth):
 		"""
@@ -120,7 +129,7 @@ class Line:
 			resampled_line.extend(points[1:])
 		return Line(resampled_line)
 		
-	def getLenght(self):
+	def getLength(self):
 		"""
 		Computes line length.
 		"""
@@ -134,9 +143,131 @@ class Line:
 	def getResampledLineInNpoints(self,n_points):
 		"""
 		Resample line into n points.
+		Points in the resampled line are equally spaced
+		along the original line.
 		"""
+		resampled_line = [self.point_list[0]]
+		
+		if n_points == 1:
+			return Line(resampled_line)
+		
+		# compute section length compatible with n_points
 		line_length = self.getLength()
-		section_length = int(round(line_length / (n_points - 1)))
-		return self.getResampledLine(section_length)
+		section_length = line_length / (n_points - 1)
 		
+		for i in range(n_points - 1):
+			tot_length = (i+1) * section_length
+			p1,p2,offset = self.getClosestPointsAndOffset(tot_length)
+			azimuth = p1.getAzimuth(p2)
+			horizontal_distance = p1.getHorizontalDistance(p2)
+			vertical_distance = p2.depth - p1.depth
+			sign = 1
+			if p2.depth - p1.depth < 0.0:
+				sign = -1
+			total_distance = sqrt(horizontal_distance**2 + vertical_distance**2)
+			# bearing angle: angle between line connecting p1 and p2
+			# and great circle line passing through p1 and with same azimuth
+			bearing_angle = acos(horizontal_distance / total_distance)
+			horizontal_distance = offset * cos(bearing_angle)
+			vertical_distance = offset * sin(bearing_angle) * sign
+			p = p1.getPoint(horizontal_distance,vertical_distance,azimuth)
+			resampled_line.append(p)
 		
+		return Line(resampled_line)
+			
+	def getClosestPointsAndOffset(self,length):
+		"""
+		return the two points in a line
+		which define lengths (from the first point of the line)
+		that are the closest to 'length'.
+		Returns also the offset between lenght and length as
+		given by the first point.
+		"""
+		#TODO: check length >= 0
+		if length >= self.getLength():
+			return self.point_list[-2],self.point_list[-1],self.point_list[-2].getDistance(self.point_list[-1])	
+		elif length == 0:
+			return self.point_list[0],self.point_list[1],0.0 
+		else:
+			for i in range(len(self.point_list) - 1):
+				length1 = Line(self.point_list[:i+1]).getLength()
+				length2 = Line(self.point_list[:i+2]).getLength()
+				if length >= length1 and length < length2:
+					return self.point_list[i],self.point_list[i+1],length - length1
+					
+	def getClosestPoint(self,length):
+		"""
+		Returns the point in a line
+		that corresponds to a length (from the first point of the line)
+		that is closest to 'length'
+		"""
+		p1,p2,offset = self.getClosestPointsAndOffset(length)
+		dist = p1.getDistance(p2)
+		
+		if offset >= dist:
+			return p2
+		else:
+			closest_p = p1
+			if dist - offset < offset:
+				closest_p = p2
+			return closest_p
+					
+class Triangle:
+	"""
+	Class defining a triangle, as defined by three geographical locations.
+	"""
+	def __init__(self,p1,p2,p3):
+		"""
+		Create triangle from three points.
+		"""
+		# TODO: check the three points are all different
+		self.p1 = p1
+		self.p2 = p2
+		self.p3 = p3
+		
+	def getArea(self):
+		"""
+		Returns triangle area (in km**2) using Heron's formula
+		http://mathworld.wolfram.com/HeronsFormula.html
+		"""
+		# get position vectors for the three points
+		P1 = getPositionVector(self.p1.longitude,self.p1.latitude,self.p1.depth)
+		P2 = getPositionVector(self.p2.longitude,self.p2.latitude,self.p2.depth)
+		P3 = getPositionVector(self.p3.longitude,self.p3.latitude,self.p3.depth)
+		
+		# get vectors joing triangle vertices
+		P1P2 = P2 - P1
+		P2P3 = P3 - P2
+		P3P1 = P1 - P3
+		
+		# compute norms (that is sides lengths)
+		p1p2 = sqrt(numpy.dot(P1P2,P1P2))
+		p2p3 = sqrt(numpy.dot(P2P3,P2P3))
+		p3p1 = sqrt(numpy.dot(P3P1,P3P1))
+		
+		# compute semiperimeter
+		s = (p1p2 + p2p3 + p3p1) / 2
+		
+		# compute area
+		a = sqrt(s * (s - p1p2) * (s - p2p3) * (s - p3p1))
+		
+		return a
+		
+def getPositionVector(longitude,latitude,depth):
+	"""
+	Returns the position vector (in Cartesian coordinates,km) of
+	a geographical location defined by longitude, latitude and
+	depth.
+	For the equation see:
+	http://mathworld.wolfram.com/SphericalCoordinates.html
+	Longitude and latitudes are supposed to be in degrees and 
+	depth in km."""
+	# TODO: check that depth is < than earth radius. Earth
+	# radius should be defined in a common place.
+	earth_radius = 6371 # in km
+	theta = radians(longitude)
+	phi = radians(90.0 - latitude)
+	x = (earth_radius - depth) * cos(theta) * sin(phi)
+	y = (earth_radius - depth) * sin(theta) * sin(phi)
+	z = (earth_radius - depth) * cos(phi)
+	return numpy.array([x,y,z])
