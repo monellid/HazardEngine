@@ -165,48 +165,18 @@ class SimpleFaultSurface:
 		# last_length[1] >= first[1]
 		
 		num_nodes_along_length = (last_length[1] - first[1]) + 1
-		
-		# if the surface portion consists of only one point,
-		# or only one point along length or only one point along
-		# width, return average strike from fault trace.
+
 		if num_nodes_along_length == 1:
-			return self.getStrike()
+			
+			if self.surface.shape[1] == 1:
+				return self.getStrike()
+			else:
+				nearest_points = self.surface[first[0],max(0, last_length[1] - 1):last_length[1] + 2]
+				print 'nearest points: ',len(nearest_points)
+				return Line(nearest_points.tolist()).getAverageAzimuth()
 		else:
-			# the surface portion consist of more then one node along length and width
-			# the strike is computed as the average strike along the top edge of
-			# the surface portion
-			# loop over fault trace segments and compute
-			# segment's azimuths and lenghts
-			azimuths = []
-			lengths = []
-			for i in range(num_nodes_along_length - 1):
-				p1 = self.surface[first[0],first[1] + i]
-				p2 = self.surface[first[0],first[1] + i + 1]
-				azimuths.append(radians(p1.getAzimuth(p2)))
-				lengths.append(p1.getHorizontalDistance(p2))
-			total_length = sum(lengths)				
-			
-			# convert from polar to cartesian coordinates
-			vectors = []
-			for i in range(len(azimuths)):
-				vectors.append(self.__getCartesianVector(lengths[i],azimuths[i]))
-				
-			# sum all vectors. this represents the mean direction,
-			# from which we can extract the mean angle
-			v = vectors[0]
-			for i in range(1,len(vectors)):
-				v = v + vectors[i]
-				
-			# extract angle
-			strike = degrees(atan(v[0] / v[1]))
-			
-			if strike < 0:
-				strike = strike + 360.0
-				
-			if strike >= 360.0:
-				strike = strike - 360.0
-			
-			return strike
+			points = self.surface[first[0],first[1]:last_length[1]+1]
+			return Line(points.tolist()).getAverageAzimuth()
 
 	def getSurfacePortionDip(self,first,last_length,last_width):
 		"""

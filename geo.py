@@ -111,6 +111,57 @@ class Line:
 		# TODO: check that there are at least two points and they are not coincident
 		# TODO: check that the line does not intersect itself
 		self.point_list = point_list
+		
+	def getAverageAzimuth(self):
+		"""
+		Returns average line azimuth.
+		"""
+		#TODO: if line is perfectly vertical return zero
+		
+		if len(self.point_list) == 2:
+			return self.point_list[0].getAzimuth(self.point_list[1])
+		else:
+			# loop over line segments and compute
+			# segment's azimuths and lenghts
+			azimuths = []
+			lengths = []
+			for i in range(len(self.point_list) - 1):
+				azimuths.append(radians(self.point_list[i].getAzimuth(self.point_list[i+1])))
+				lengths.append(self.point_list[i].getHorizontalDistance(self.point_list[i+1]))
+			total_length = sum(lengths)				
+			
+			# convert from polar to cartesian coordinates
+			vectors = []
+			for i in range(len(azimuths)):
+				vectors.append(self.__getCartesianVector(lengths[i],azimuths[i]))
+				
+			# sum all vectors. this represents the mean direction,
+			# from which we can extract the mean angle
+			v = vectors[0]
+			for i in range(1,len(vectors)):
+				v = v + vectors[i]
+				
+			# extract angle
+			strike = degrees(atan(v[0] / v[1]))
+			
+			if strike < 0:
+				strike = strike + 360.0
+				
+			if strike >= 360.0:
+				strike = strike - 360.0
+			
+			return strike
+			
+	def __getCartesianVector(self,radius,azimuth):
+		"""
+		Return cartesian vector from polar vector.
+		Azimuth is measured from the y axis, and
+		is assumed to be in radians.
+		"""
+		x = radius * sin(azimuth)
+		y = radius * cos(azimuth)
+
+		return numpy.array([x,y])
 
 	def getResampledLine(self,section_length):
 		"""
