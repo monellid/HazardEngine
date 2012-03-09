@@ -58,94 +58,27 @@ class SimpleFaultSurface:
 		surface = numpy.array(mesh_points)
 		surface = surface.reshape(len(top_edge),len(mesh_points)/len(top_edge))
 		surface = numpy.transpose(surface)
+		
 		return surface
 		
 	def getStrike(self):
 		"""
 		Return fault strike as average azimuth of fault trace
 		segments.
-		The average azimuth is computed following the approach
-		described in http://en.wikipedia.org/wiki/Mean_of_circular_quantities.
-		That is segment's azimuths and lengths are interpreted as
-		polar coordinates and converted to cartesian coordinates
-		(therefore defining a set of cartesian vectors). The mean azimuth is given
-		by the angle of the vector obtained by summing all vectors.
 		"""
-		
-		if len(self.fault_trace) == 2:
-			return self.fault_trace[0].getAzimuth(self.fault_trace[1])
-		else:
-			# loop over fault trace segments and compute
-			# segment's azimuths and lenghts
-			azimuths = []
-			lengths = []
-			for i in range(len(self.fault_trace) - 1):
-				azimuths.append(radians(self.fault_trace[i].getAzimuth(self.fault_trace[i+1])))
-				lengths.append(self.fault_trace[i].getHorizontalDistance(self.fault_trace[i+1]))
-			total_length = sum(lengths)				
-			
-			# convert from polar to cartesian coordinates
-			vectors = []
-			for i in range(len(azimuths)):
-				vectors.append(self.__getCartesianVector(lengths[i],azimuths[i]))
-				
-			# sum all vectors. this represents the mean direction,
-			# from which we can extract the mean angle
-			v = vectors[0]
-			for i in range(1,len(vectors)):
-				v = v + vectors[i]
-				
-			# extract angle
-			strike = degrees(atan(v[0] / v[1]))
-			
-			if strike < 0:
-				strike = strike + 360.0
-				
-			if strike >= 360.0:
-				strike = strike - 360.0
-			
-			return strike
-		
-	def __getCartesianVector(self,radius,azimuth):
-		"""
-		Return cartesian vector from polar vector.
-		Azimuth is measured from the y axis, and
-		is assumed to be in radians.
-		"""
-		x = radius * sin(azimuth)
-		y = radius * cos(azimuth)
-		
-		return numpy.array([x,y])
+		return Line(self.fault_trace).getAverageAzimuth()
 		
 	def getDip(self):
 		"""
 		Return fault dip as the average dip over the fault surface mesh.
-		It's computed as the average value of the dip values of the mesh cells in the first row
-		of the surface mesh (for SimpleFaultSurface dip is constant over depth, so
-		there is not need to compute dip angle along width). 
-		The dip of each mesh cell is obtained by calculating the vector normal to each mesh
-		cell, and the vector normal to the Earth surface at the cell location. The angle
-		between these two vectors is the dip angle.
-		If the surface mesh has only one location along width or one along strike, or 
-		is made of only one location along length and width,
+		If the surface mesh has only one location along width or one along strike
 		returns dip value as passed in the constructor.
 		"""
-		if self.surface.shape[0] * self.surface.shape[1] == 1 or self.surface.shape[0] == 1 or self.surface.shape[1] == 1:
-			return self.dip
+		
+		if self.surface.shape[0] > 1 and self.surface.shape[1] > 1:
+			return getSurfaceDip(self.surface)
 		else:
-			average_dip = 0.0
-			# loop over mesh cells (only in the first row, this because in a SimpleFaultSurface
-			# dip does not vary with depth). For each mesh cell compute the vector normal to
-			# the cell, and the vector normal to the earth surface. Computes
-			# the dip as the angle between the these two vectors
-			for i in range(self.surface.shape[1] - 1):
-				# get the top (left and right) and lower left points defining the mesh cell
-				p1 = self.surface[0,i]
-				p2 = self.surface[0,i+1]
-				p3 = self.surface[1,i]
-				dip = getPlaneDip(p1,p2,p3)
-				average_dip = average_dip + dip
-			return average_dip / (self.surface.shape[1] - 1)
+			return self.dip
 			
 	def getSurfacePortionStrike(self,first,last_length,last_width):
 		"""
@@ -154,9 +87,10 @@ class SimpleFaultSurface:
 			- last_length: tuple (i,j) containing indexes of surface last mesh point along length
 			- last_width: tuple (i,j) containing indexes of surface last mesh point along width
 			If the surface portion consists of only one node along length, then the average strike
-			from fault trace is returned.
+			of the horizontal segments containing the node is returned. If the fault surface mesh
+			contains only one node along length, the fault strike is returned.
 			If the surface portion consists of more than one node along length, then the average strike
-			along the nodes is returned.
+			of the surface portion top edge is returned.
 		"""
 		# TODO: check that first and last_length are valid indexes
 		# 0<=first[0]<=self.surface.shape[0] - 1
@@ -171,8 +105,7 @@ class SimpleFaultSurface:
 			if self.surface.shape[1] == 1:
 				return self.getStrike()
 			else:
-				nearest_points = self.surface[first[0],max(0, last_length[1] - 1):last_length[1] + 2]
-				print 'nearest points: ',len(nearest_points)
+				nearest_points = self.surface[first[0],max(0, first[1] - 1):first[1] + 2]
 				return Line(nearest_points.tolist()).getAverageAzimuth()
 		else:
 			points = self.surface[first[0],first[1]:last_length[1]+1]
@@ -184,11 +117,11 @@ class SimpleFaultSurface:
 			- first: tuple (i,j) containing indexes of surface first mesh point
 			- last_length: tuple (i,j) containing indexes of surface last mesh point along length
 			- last_width: tuple (i,j) containing indexes of surface last mesh point along width
-		If the surface portion consists of only one node, or only one node along length
-		or along width, then the dip values as passed in the constructor is returned.
-		If the surface portion consists of more than one node along length and width,
-		the dip is computed as the average dip of the cell constituting the surface
-		portion.
+		If the fault surface consists of only one node along width, the fault surface dip is returned.
+		If the surface portion consists of only one node along length, then the dip is defined
+		as the average dip of the mesh cells containing the uppermost node.
+		If the surface portion consists of more than one node along length and width, then the dip is defined
+		as the average dip of the mesh cells constituting the surface portion.
 		"""
 		# TODO: check that first and last_length are valid indexes
 		# 0<=first[0]<=self.surface.shape[0] - 1
@@ -196,28 +129,16 @@ class SimpleFaultSurface:
 		# last_length[0]==first[0]
 		# last_length[1] >= first[1]
 		
+		if self.surface.shape[0] == 1:
+			return self.getDip()
+		
 		num_nodes_along_length = (last_length[1] - first[1]) + 1
 		num_nodes_along_width = (last_width[0] - first[0]) + 1
 		
-		# if the surface portion consisists of only one point,
-		# or only one point along length or only one point along
-		# width, return dip as passed in the constructor.
-		if num_nodes_along_width * num_nodes_along_length == 1 or num_nodes_along_width == 1 or num_nodes_along_length == 1:
-			return self.dip
+		if num_nodes_along_length == 1:
+			return getSurfaceDip(self.surface[max(0,first[0] - 1):first[0]+2,max(0, first[1] - 1):first[1] + 2])
 		else:
-			# the surface portion consist of more then one node along length and width
-			# the dip is computed as the average dip of the cells constituting the surface
-			# portion
-			# the loop is done only along length, because along width the dip
-			# is constant
-			average_dip = 0.0
-			for i in range(num_nodes_along_length - 1):
-				p1 = self.surface[first[0],first[1] + i]
-				p2 = self.surface[first[0],first[1] + i + 1]
-				p3 = self.surface[first[0]+1,first[1] + i]
-				average_dip = average_dip + getPlaneDip(p1,p2,p3)
-			return average_dip / (num_nodes_along_length - 1)
-
+			return getSurfaceDip(self.surface[first[0]:last_width[0]+1,first[1]:last_length[1] + 1])
 			
 	def getSurfacePortionCentroid(self,first,last_length,last_width):
 		"""
@@ -507,3 +428,23 @@ def getPlaneDip(p1,p2,p3):
 	# compute angle in between: this is the dip
 	dip = degrees(acos(numpy.dot(normal_p1,normal)))
 	return dip
+	
+def getSurfaceDip(surface):
+	"""
+	Computes dip (that is inclination) of a surface.
+	The dip is computed as the average dip of the 
+	mesh cells in the first row of the surface.
+	The dip of each mesh cell is obtained by calculating the vector normal to each mesh
+	cell, and the vector normal to the Earth surface at the cell location. The angle
+	between these two vectors is the dip angle.
+	The method assumes the surface has constant dip
+	over depth (that's why only cells in the first
+	row are considered).
+	"""
+	average_dip = 0.0
+	for i in range(surface.shape[1] - 1):
+		p1 = surface[0,i]
+		p2 = surface[0,i + 1]
+		p3 = surface[1,i]
+		average_dip = average_dip + getPlaneDip(p1,p2,p3)
+	return average_dip / (surface.shape[1] - 1)

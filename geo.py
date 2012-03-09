@@ -114,7 +114,12 @@ class Line:
 		
 	def getAverageAzimuth(self):
 		"""
-		Returns average line azimuth.
+		The average azimuth is computed following the approach
+		described in http://en.wikipedia.org/wiki/Mean_of_circular_quantities.
+		That is segment's azimuths and lengths are interpreted as
+		polar coordinates and converted to cartesian coordinates
+		(therefore defining a set of cartesian vectors). The mean azimuth is given
+		by the angle of the vector obtained by summing all vectors.
 		"""
 		#TODO: if line is perfectly vertical return zero
 		
