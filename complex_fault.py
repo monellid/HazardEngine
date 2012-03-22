@@ -23,7 +23,7 @@ class ComplexFaultSurface:
 		- the last point in the fault top edge is the fault upper right corner
 		- the first point in the fault bottom edge is the fault lower left corner
 		- the last point in the fault bottom edge is the fault lower right corner
-		- the firzt point in the fault intermediate edge lies on the left side of the fault surface
+		- the first point in the fault intermediate edge lies on the left side of the fault surface
 		- the last point in the fault intermediate edge lies on the right side of the fault surface
 		"""
 		#TODO: check fault_top_edge != fault_bottom_edge != fault_intermediate_edge (i.e. they cannot contain the same set of points)
@@ -138,6 +138,10 @@ class ComplexFaultSource:
 		- 'first': tuple (i,j) containing indexes of rupture's first mesh point
 		- 'last_length': tuple (i,j) containing indexes of rupture's last mesh point along length
 		- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
+		NOTE: the algorithm is designed in a way that each rupture is defined by at least two points
+		along length, and two points along width (independently of magnitude and mesh spacing).
+		That is mesh_spacing * mesh_spacing is the 'area quantum'. All ruptures with area smaller than
+		the 'area quantum' are modelled as having an area equal to the 'area quantum'. 
 		"""
 		
 		rupture_data = []
@@ -157,6 +161,10 @@ class ComplexFaultSource:
 		
 		occurrence_rates = self.freq_mag_dist.getAnnualOccurrenceRates()
 		
+		# normalization factors. Dictionary containing, per each magnitude value,
+		# the number of ruptures defined.
+		norm_f = {}
+		
 		for mag,rate in occurrence_rates:
 			
 			# compute expected rupture surface area, length and width
@@ -172,9 +180,15 @@ class ComplexFaultSource:
 						'last_length':(0,self.fault_surf.surface.shape[1] - 1),
 						'last_width':(self.fault_surf.surface.shape[0]-1,0)}
 				rupture_data.append(data)
-				
+				norm_f[mag] = 1
 			else:
 			
+				count  = 0
+				# array containing boolean values (set to False), used to check
+				# if a node at the fault bottom edge has been already used as
+				# bottom left corner of a rupture.
+				visited_nodes = numpy.ndarray((self.fault_surf.surface.shape[1]),dtype=bool)
+				visited_nodes[:] = False
 				# loop over ruptures' upper left corners
 				for i in range(self.fault_surf.surface.shape[0] - 1):
 					for j in range(self.fault_surf.surface.shape[1] - 1):
@@ -202,47 +216,21 @@ class ComplexFaultSource:
 						if i + last_width_idx[0][0] + 1 == self.fault_surf.surface.shape[0] - 1:
 							last_length_idx = numpy.where(abs(rup_areas[last_width_idx[0][0],:] - ex_rup_area) == numpy.min(abs(rup_areas[last_width_idx[0][0],:] - ex_rup_area)))
 						
+						# if the last node along width lies on the fault bottom boundary, check if
+						# it has been already used as "bottom left corner" for a previous rupture.
+						# If not consider the rupture (and set visited_node to True), otherwise continue.
+						if i + last_width_idx[0][0] + 1 == self.fault_surf.surface.shape[0] - 1:
+							if visited_nodes[j] == False:
+								visited_nodes[j] = True
+							else:
+								continue
+						
 						# extract last nodes along length and width
 						# the plus 1 is due to the fact that rup_index
 						# corresponds to the cell index, while
 						# we are interested in the surface last node index
 						last_length = (i,j + last_length_idx[0][0] + 1)
 						last_width = (i + last_width_idx[0][0] + 1,j)
-						
-						# compute possible rupture areas, starting from node
-						# (i,j) by accumulating cells areas along length (i.e. rows)
-						# and along width (i.e. columns)
-						#rup_areas = numpy.add.accumulate(cells_area[i:,j:],axis=1)
-						#rup_areas = numpy.add.accumulate(rup_areas,axis=0)
-						
-						# compute corresponding rupture aspect ratios,
-						# starting from node (i,j)
-						#rup_lengths = numpy.add.accumulate(cells_lengths[i:,j:],axis=1)
-						#rup_widths = numpy.add.accumulate(cells_widths[i:,j:],axis=0)
-						#aspect_ratios = rup_lengths / rup_widths
-						
-						# extract node indexes giving rupture areas
-						# close to expected rupture area (within tolerance)
-						#rup_indexes_area = numpy.where(100 * abs(rup_areas - ex_rup_area) / ex_rup_area<= self.area_tol)
-						#rup_indexes_area_z = zip(rup_indexes_area[0],rup_indexes_area[1])
-						
-						# if there are not just continue (that is, in the current position
-						# the fault surface cannot accomodate a rupture with the
-						# expected area [within tolerance])
-						#if len(rup_indexes_area[0]) == 0:
-						#	continue
-						
-						# among the ruptures consistent with the expected rupture area,
-						# extract the one that has the aspect ratio closest to the one
-						# given in the constructor
-						#rup_index = numpy.where(abs(aspect_ratios - self.rup_aspect_ratio) == numpy.min(abs(aspect_ratios[rup_indexes_area] - self.rup_aspect_ratio)))
-						
-						# extract last nodes along length and width
-						# the plus 1 is due to the fact that rup_index
-						# corresponds to the cell index, while
-						# we are interested in the surface last node index
-						#last_length = (i,j + rup_index[1][0] + 1)
-						#last_width = (i + rup_index[0][0] + 1,j)
 								
 						data = {'mag':mag,
 								'rate':rate,
@@ -250,6 +238,7 @@ class ComplexFaultSource:
 								'last_length':last_length,
 								'last_width':last_width}
 						rupture_data.append(data)
+						count = count + 1
 						
 						# if the rupture touches the right boundary of the fault, break,
 						# that is continue on the next row
@@ -260,120 +249,200 @@ class ComplexFaultSource:
 					# boundaries
 					if rupture_data[-1]['last_length'][1] == self.fault_surf.surface.shape[1] - 1 and rupture_data[-1]['last_width'][0] == self.fault_surf.surface.shape[0] - 1:
 						break
+				
+				# store how many ruptures have been defined for the given magnitude	
+				norm_f[mag] = count
 						
+		# loop over defined ruptures and scale rates
+		for i in range(len(rupture_data)):
+			rupture_data[i]['rate'] = rupture_data[i]['rate'] / norm_f[rupture_data[i]['mag']]
+			
 		return rupture_data
 		
-		
-		
-		#fault_surface_area = getSurfacePortionArea(self.fault_surf.surface,(0,0),(0,self.fault_surf.surface.shape[1] - 1),(self.fault_surf.surface.shape[0]-1,0))
-		
-		# loop over magnitude values, For each magnitude compute expected rupture area.
-		# If expected rupture area is greater than fault surface area, return fault surface
-		# as rupture surface.
-		# If expected rupture area is smaller than fault surface area, loop over fault source
-		# nodes (except nodes on the fault bottom and right edges).
-		# For each node (for the purpose of the algorithm identified by the name nucleation node),
-		# determine rupture surface last node along length and along width.
-		# Along length and width last nodes are determined by finding the nodes
-		# (along rupture horizontal and vertical edges) that defines a rupture surface with an area
-		# that is closest to the expected rupture area.
-		# if the rupture surface node opposite to the nucleation node, lies on a fault surface edge
-		# then the rupture is considered only if the percentage difference between rupture surface
-		# area and expted rupture area is smaller than a tolerance level.
-		#for mag,rate in occurrence_rates:
-			
-			# compute expected rupture surface area
-			#ex_rup_area = self.mag_scaling_rel.getMedianArea(mag)
-			#ex_rup_length = sqrt(ex_rup_area * self.rup_aspect_ratio)
-			#ex_rup_width = ex_rup_area / ex_rup_length		
-			
-			#if ex_rup_area >= fault_surface_area:
-				# return indexes corresponding to the entire surface
-			#	data = {'mag':mag,
-			#			'rate':rate,
-			#			'first':(0,0),
-			#			'last_length':(0,self.fault_surf.surface.shape[1] - 1),
-			#			'last_width':(self.fault_surf.surface.shape[0]-1,0)}
-			#	rupture_data.append(data)
-			#else:
-			#	# loop over ruptures' upper left corners
-			#	for i in range(self.fault_surf.surface.shape[0] - 1):
-			#		for j in range(self.fault_surf.surface.shape[1] - 1):
-			#			
-			#			# extract lines corresponding to length and width
-			#			line_l = Line(self.fault_surf.surface[i,j:].tolist())
-			#			line_w = Line(self.fault_surf.surface[i:,j].tolist())
-						
-						# compute length from current upper left corner of
-						# the rupture 
-			#			max_length = line_l.getLength()
-						
-						# compute rupture length corresponding to rupture area closest to expected rupture area
-			#			print 'optimizing...'
-			#			args = (self.fault_surf.surface,(i,j),self.rup_aspect_ratio,ex_rup_area)			
-			#			xtol = self.fault_surf.mesh_spacing/2
-			#			maxfun = len(line_l.point_list)/2
-			#			length= optimize.fminbound(ruptureAreaRelativeDiff, 0, max_length, args=args, xtol=xtol, maxfun=5, full_output=0, disp=0)
-						
-						# get points corresponding to length and width as obtained from length / aspect_ratio
-			#			last_length = numpy.where(self.fault_surf.surface == line_l.getClosestPoint(length))
-			#			last_width = numpy.where(self.fault_surf.surface == line_w.getClosestPoint(length/self.rup_aspect_ratio))
-			#			last_length  = (last_length[0][0],last_length[1][0])
-			#			last_width = (last_width[0][0],last_width[1][0])
-						
-			#			print 'computing area...'
-						# compute rupture surface area
-			#			comp_rup_area = getSurfacePortionArea(self.fault_surf.surface,(i,j),last_length,last_width)
-						
-						# compute percentage difference between expected and computed area
-						# if higher than tolerance, break
-			#			percent_relative_diff = 100 * abs(comp_rup_area - ex_rup_area) / ex_rup_area
-			#			print (i,j)
-			#			print 'expected rupture area: %s, computed rupture area: %s, percent diff: %s' % (ex_rup_area,comp_rup_area,percent_relative_diff)
-			#			if last_width[0] == self.fault_surf.surface.shape[0] - 1 or last_length[1] == self.fault_surf.surface.shape[1] - 1:
-			#				if percent_relative_diff > self.tol:
-			#					break
+	def getNumRuptures(self):
+		"""
+		Return number of ruptures.
+		"""
+		return len(self.rupture_data)
 
-def ruptureAreaRelativeDiff(length,surface,first,aspect_ratio,expected_area):
+	def getRupture(self,rupt_index):
+		"""
+		Return rupture corresponding to rupt_index.
+		A rupture is currently defined in terms of:
+		- magnitude
+		- strike
+		- dip
+		- rake
+		- tectonic region type
+		- hypocenter (defined as the centroid of the rupture surface)
+		- rupture surface mesh
+		- rate of occurrence
+		- probability of occurrence
+		"""
+		# extract magnitude and rate
+		mag = self.rupture_data[rupt_index]['mag']
+		rate = self.rupture_data[rupt_index]['rate']
+
+		# extract rupture surface
+		first = self.rupture_data[rupt_index]['first']
+		last_length = self.rupture_data[rupt_index]['last_length']
+		last_width = self.rupture_data[rupt_index]['last_width']
+		rup_surf_mesh = self.fault_surf.surface[first[0]:last_width[0]+1,first[1]:last_length[1]+1]
+
+		# get strike and dip
+		strike = getSurfacePortionStrike(self.fault_surf.surface,first,last_length,last_width)
+		dip  = getSurfacePortionDip(self.fault_surf.surface,first,last_length,last_width)
+
+		# get hypocenter
+		hypocenter = getSurfacePortionCentroid(self.fault_surf.surface,first,last_length,last_width)
+
+		# Poissonian probability of one or more occurrences
+		probability_occurrence = 1 - exp(-rate * self.time_span)
+
+		return {'magnitude':mag,'strike':strike,'dip':dip,'rake':self.rake,
+				'tectonic':self.tectonic_region_type,'hypocenter':hypocenter,
+				'surface':rup_surf_mesh,
+				'rate':rate,'probability':probability_occurrence}
+				
+def getSurfacePortionCentroid(surface,first,last_length,last_width):
 	"""
-	Computes relative percent difference between 'expected_area', and
-	surface portion area defined over 'surface', and identified
-	by:
-	- length: portion length (along top edge)
-	- first: (i,j) tuple identifing portion upper left corner node
-	- aspect_ratio: (top edge) length / (left edge) width
+	Computes surface portion centroid. 
+	The algorithm works as follows. The surface portion is splitted into
+	triangular facets. The centroid is then computed as the center of mass
+	of the surgface portion,following the equation in 
+	http://mathworld.wolfram.com/GeometricCentroid.html
+	where the 'mass' of each triangle is its area.
+	Return centroid as numpy.array([longitude,latitude,depth])
 	"""
+	x = []
+	y = []
+	z = []
+	area = []
+	for i in range(first[0],last_width[0]):
+		for j in range(first[1],last_length[1]):
+
+			# define the two triangles constituting the mesh cell
+			# lower triangle
+			t1 = Triangle(surface[i,j],surface[i+1,j],surface[i+1,j+1])
+			# upper triangle
+			t2 = Triangle(surface[i,j],surface[i,j+1],surface[i+1,j+1])
+			
+			area1 = t1.getArea()
+			centroid1 = t1.getCentroid()
+			
+			area2 = t2.getArea()
+			centroid2 = t2.getCentroid()
+			
+			x.append(centroid1[0])
+			x.append(centroid2[0])
+			
+			y.append(centroid1[1])
+			y.append(centroid2[1])
+			
+			z.append(centroid1[2])
+			z.append(centroid2[2])
+			
+			area.append(area1)
+			area.append(area2)
 	
-	# computes surface portion width based on length and aspect ratio
-	width = length / aspect_ratio
+	x_centroid = numpy.sum(numpy.array(area) * numpy.array(x)) / numpy.sum(numpy.area)
+	y_centroid = numpy.sum(numpy.array(area) * numpy.array(y)) / numpy.sum(numpy.area)
+	z_centroid = numpy.sum(numpy.array(area) * numpy.array(z)) / numpy.sum(numpy.area)
 	
-	# extract lines corresponding to length and width
-	line_l = Line(surface[first[0],first[1]:].tolist())
-	line_w = Line(surface[first[0]:,first[1]].tolist())
+	# convert to spherical coordinates
+	return getSphericalPositionVector(x_centroid,y_centroid,z_centroid)
+		
+def getSurfacePortionStrike(surface,first,last_length,last_width):
+	"""
+	Computes surface portion strike. Assumes the surface to be defined by a 2D numpy array
+	of locations, with variable spacing. Locations on different rows are not requested to
+	be aligned along the same direction.
+	The algorithm computes the surface portion strike, by calculating first the average azimuth
+	of each surface line (that is locations defined in the same row), and then the weigthed average azimuth
+	of the surface lines' average azimuths (the weights are the surface lines lengths).
+	NOTE: given that this method is used for the complex fault source, each surface portion
+	is defined by at least two points along lenght and along width, so there is no need
+	to deal with the case of a surface portion defined by a single point along length and/or
+	along width.
+	"""
+	azimuths = []
+	weights = []
+	for i in range(first[0],last_width[0] + 1):
+		line = Line(surface[i,first[1]:last_length[1] + 1])
+		azimuths.append(radians(line.getAverageAzimuth()))
+		weights.append(line.getLength())
+		
+	# convert from polar to cartesian coordinates
+	vectors = []
+	for i in range(len(azimuths)):
+		vectors.append(numpy.array([weights[i] * sin(azimuths[i]),weights[i] * cos(azimuths[i])]))
+		
+	# sum all vectors. this represents the mean direction,
+	# from which we can extract the mean angle
+	v = vectors[0]
+	for i in range(1,len(vectors)):
+		v = v + vectors[i]
+		
+	# extract angle
+	strike = degrees(atan(v[0] / v[1]))
 	
-	# get closest point along length and with
-	# and compute corresponding area
-	last_length = numpy.where(surface == line_l.getClosestPoint(length))
-	last_width = numpy.where(surface == line_w.getClosestPoint(width))
-	last_length  = (last_length[0][0],last_length[1][0])
-	last_width = (last_width[0][0],last_width[1][0])
-	computed_area =  getSurfacePortionArea(surface,first,last_length,last_width)
+	if strike < 0:
+		strike = strike + 360.0
+		
+	if strike >= 360.0:
+		strike = strike - 360.0
 	
-	# return (percent) relative differences
-	f =  100 * abs(computed_area - expected_area) / expected_area
+	return strike
 	
-	return f
-						
+def getSurfacePortionDip(surface,first,last_length,last_width):
+	"""
+	Computes surface portion dip. Assumes the surface to be defined by a 2D numpy array
+	of locations, with variable spacing. Locations on different rows are not requested to
+	be aligned along the same direction.
+	The algorithm computes the surface portion dip by calculating the weighted average of the
+	surface portion mesh cells (the weights being the mesh cells). The dip of each mesh 
+	cell is calculated by splitting the cell into two triangles, and calculating the 
+	dip of each triangle (each triangle defines a plane with a certain inclination/dip 
+	with respect to the Earth surface). The dip of each cell is the weighted average 
+	of the triangles' dips (weights are the triangles' areas).
+	"""
+	cell_dips = []
+	cell_areas = []
+	for i in range(first[0],last_width[0]):
+		for j in range(first[1],last_length[1]):
+
+			# define the two triangles constituting the mesh cell
+			# lower triangle
+			t1 = Triangle(surface[i,j],surface[i+1,j],surface[i+1,j+1])
+			# upper triangle
+			t2 = Triangle(surface[i,j],surface[i,j+1],surface[i+1,j+1])
+			
+			# compute dips and areas of the two triangles
+			dip1 = t1.getInclination()
+			area1 = t1.getArea()
+			dip2 = t2.getInclination()
+			area2 = t2.getArea()
+			
+			cell_dips.append((area1 * dip1 + area2 * dip2) / (area1 + area2))
+			cell_areas.append(area1 + area2)
+			
+	# compute weighted mean
+	return numpy.sum(numpy.array(cell_dips) * numpy.array(cell_areas)) / numpy.sum(numpy.array(cell_areas))
+	
 def getSurfacePortionArea(surface,first,last_length,last_width):
 	"""
-	Computes surface portion area.
+	Computes surface portion area. Assumes the surface to be defined by a 2D numpy array
+	of locations, with variable spacing. Locations on different rows are not requested to
+	be aligned along the same direction.
+	The algorihtm computes the surface portion area, by summing up the areas of the mesh
+	cells composing the surface portion. The area of each mesh cell is calculated by splitting
+	the mesh cell into two triangles, and calculating the area of each triangle. The sum of the
+	triangles' areas gives the mesh cell area.
 	The surface portion is determined by:
 	- 'first': tuple (i,j) containing indexes of surface first mesh point
 	- 'last_length': tuple (i,j) containing indexes of surface last mesh point along length
 	- 'last_width': tuple (i,j) containing indexes of rupture's last mesh point along width
 	"""
-
-	# TODO: check that first,last_length,last_width are valid indexes
 	area = 0.0
 	for i in range(first[0],last_width[0]):
 		for j in range(first[1],last_length[1]):
@@ -432,6 +501,12 @@ def plotComplexFaultSource(src):
 	# plot surface mesh points
 	ax.scatter(x_surf_points, y_surf_points, depths_surf_points, c='w', marker='o')
 	
+	miny = numpy.min(y_surf_points)
+	maxy = numpy.max(y_surf_points)
+	minx = numpy.min(x_surf_points)
+	maxx = numpy.max(x_surf_points)
+	ax.set_ylim3d(miny - 1,maxy + 1)
+	ax.set_xlim3d(minx - 1,maxx + 1)
 	ax.set_xlabel('Along longitude (km)')
 	ax.set_ylabel('Along latitude (km)')
 	ax.set_zlabel('Along depth (km)')
@@ -468,15 +543,18 @@ def plotComplexFaultSource(src):
 		ex_rup_area = src.mag_scaling_rel.getMedianArea(data['mag'])
 		title = 'predicted rupture area (km^2): %s\nexpected rupture area (km^2): %s' % (rup_area, ex_rup_area)
 		ax.set_title(title)
-
+		
+		#ax.set_aspect('equal')
+		ax.legend()
+		ax.set_ylim3d(miny - 1,maxy + 1)
+		ax.set_xlim3d(minx - 1,maxx + 1)
 		ax.set_xlabel('Along longitude (km)')
 		ax.set_ylabel('Along latitude (km)')
 		ax.set_zlabel('Along depth (km)')
-		ax.legend()
+		
 		
 		filename = str('rup%s' % i) + '.png'
 		plt.savefig(filename, dpi=100)
-		del ax
 		plt.clf()
 	
 def getLineCartesianCoordinates(proj,line):

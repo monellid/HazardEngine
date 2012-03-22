@@ -2,6 +2,10 @@ from math import *
 from geo import *
 from rup import *
 import numpy
+import matplotlib
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import pyproj
 
 class SimpleFaultSurface:
 	"""
@@ -232,9 +236,9 @@ class PoissonianFaultSource:
 		self.rup_aspect_ratio = rup_aspect_ratio
 		self.tectonic_region_type = tectonic_region_type
 		self.time_span = time_span
-		self.rupture_data = self.__getRuptureData()
+		self.rupture_data = self.getRuptureData()
 		
-	def __getRuptureData(self):
+	def getRuptureData(self):
 		"""
 		Return list containing rupture data. The length of the list
 		corresponds to the number of ruptures. Each entry in the list
@@ -448,3 +452,106 @@ def getSurfaceDip(surface):
 		p3 = surface[1,i]
 		average_dip = average_dip + getPlaneDip(p1,p2,p3)
 	return average_dip / (surface.shape[1] - 1)
+	
+def plotSimpleFaultSource(src):
+	"""
+	Plots simple fault source (src)
+	"""
+
+	#matplotlib.rc('axes', facecolor='k')
+	# create figure
+	fig = plt.figure()
+	ax = fig.gca(projection='3d')
+
+	# get orthogonal projection centered around
+	# fault trace middle point
+	mean_lon = (src.fault_surf.fault_trace[0].longitude + \
+				src.fault_surf.fault_trace[-1].longitude) / 2
+	mean_lat = (src.fault_surf.fault_trace[0].latitude + \
+				src.fault_surf.fault_trace[-1].latitude) / 2
+	proj = pyproj.Proj(proj='ortho', lat_0=mean_lat, lon_0=mean_lon, units='km', preserve_units=True)
+
+	# extract fault trace coordinates
+	x_top_edge,y_top_edge,depths_top_edge = getLineCartesianCoordinates(proj,Line(src.fault_surf.fault_trace))
+
+	# extract surface points coordinates
+	x_surf_points, y_surf_points, depths_surf_points = getSurfaceCartesianCoordinates(proj,src.fault_surf.surface)
+
+	# plot fault trace
+	ax.plot(x_top_edge, y_top_edge, depths_top_edge, label='Fault Trace',color='r',linewidth=3)
+
+	# plot surface mesh points
+	ax.scatter(x_surf_points, y_surf_points, depths_surf_points, c='w', marker='o')
+
+	miny = numpy.min(y_surf_points)
+	maxy = numpy.max(y_surf_points)
+	minx = numpy.min(x_surf_points)
+	maxx = numpy.max(x_surf_points)
+	ax.set_ylim3d(miny - 1,maxy + 1)
+	ax.set_xlim3d(minx - 1,maxx + 1)
+	ax.set_xlabel('Along longitude (km)')
+	ax.set_ylabel('Along latitude (km)')
+	ax.set_zlabel('Along depth (km)')
+	ax.legend()
+
+	plt.savefig('fault_surface.png', dpi=100)
+	del ax
+	plt.clf()
+
+	# then plot ruptures
+	rupture_data = src.getRuptureData()
+	i = 0
+	for data in rupture_data:
+		i += 1
+		fig = plt.figure()
+		ax = fig.gca(projection='3d')
+
+		# plot fault surface points coordiantes
+		ax.scatter(x_surf_points, y_surf_points, depths_surf_points, color='k', marker='.')
+
+		# extract rupture surface points coordinates
+		first = data['first']
+		last_length = data['last_length']
+		last_width = data['last_width']
+		surf = src.fault_surf.surface[first[0]:last_width[0]+1,first[1]:last_length[1]+1]
+		x_rupsurf_points, y_rupsurf_points, depths_rupsurf_points = getSurfaceCartesianCoordinates(proj,surf)
+
+		# plot rupture surface mesh points
+		ax.scatter(x_rupsurf_points, y_rupsurf_points, depths_rupsurf_points, c='m', marker='o',alpha=1.0)
+
+		# compute rupture area
+		#rup_area = getSurfacePortionArea(src.fault_surf.surface,first,last_length,last_width)
+		# compute expected rupture area
+		#ex_rup_area = src.mag_scaling_rel.getMedianArea(data['mag'])
+		#title = 'predicted rupture area (km^2): %s\nexpected rupture area (km^2): %s' % (rup_area, ex_rup_area)
+		#ax.set_title(title)
+
+		ax.legend()
+		ax.set_ylim3d(miny - 1,maxy + 1)
+		ax.set_xlim3d(minx - 1,maxx + 1)
+		ax.set_xlabel('Along longitude (km)')
+		ax.set_ylabel('Along latitude (km)')
+		ax.set_zlabel('Along depth (km)')
+
+
+		filename = str('rup%s' % i) + '.png'
+		plt.savefig(filename, dpi=100)
+		plt.clf()
+		
+def getLineCartesianCoordinates(proj,line):
+	lons = [p.longitude for p in line.point_list]
+	lats = [p.latitude for p in line.point_list]
+	depths = [-p.depth for p in line.point_list]
+	x, y = proj(lons,lats)
+	return x,y,depths
+
+def getSurfaceCartesianCoordinates(proj,surf):
+	"""
+	surf: 2D numpy array of Locations
+	"""
+	surf_points = surf.flatten().tolist()
+	lons_surf_points = [p.longitude for p in surf_points]
+	lats_surf_points = [p.latitude for p in surf_points]
+	depths_surf_points = [-p.depth for p in surf_points]
+	x_surf_points, y_surf_points = proj(lons_surf_points,lats_surf_points)
+	return x_surf_points, y_surf_points, depths_surf_points

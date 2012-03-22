@@ -309,6 +309,53 @@ class Triangle:
 		
 		return a
 		
+	def getInclination(self):
+		"""
+		Returns angle between Earth surface and plane
+		containing the triangle (between 0 and 90 degrees).
+		"""
+		# get position vectors for the three points
+		P1 = getPositionVector(self.p1.longitude,self.p1.latitude,self.p1.depth)
+		P2 = getPositionVector(self.p2.longitude,self.p2.latitude,self.p2.depth)
+		P3 = getPositionVector(self.p3.longitude,self.p3.latitude,self.p3.depth)
+		
+		# get two vectors joing one vertex
+		# (p1) with the remaining two (p2, p3)
+		P1P2 = P2 - P1
+		P1P3 = P3 - P1
+		
+		# make the cross product of the two vectors,
+		# the result is a vector perpendicular to the
+		# triangle
+		normal = numpy.cross(P1P2,P1P3)
+		normal = normal / sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
+		# compute unit vector normal to earth surface at p1
+		normal_p1 = P1 / sqrt(P1[0]**2 + P1[1]**2 + P1[2]**2)
+		# compute angle in between: this is the dip
+		dip = degrees(acos(numpy.dot(normal_p1,normal)))
+		
+		# this is to take into account the case in which
+		# the vector perpendicular to the triangle is
+		# not pointing towards the Earth surface, but in the
+		# opposite direction.
+		if dip > 90.0:
+			dip = 180 - dip
+			
+		return dip
+		
+	def getCentroid(self):
+		"""
+		Returns triangle centroid (as cartesian vector).
+		Implements equation (5) in 
+		http://mathworld.wolfram.com/GeometricCentroid.html 
+		"""
+		# get position vectors for the three points
+		P1 = getPositionVector(self.p1.longitude,self.p1.latitude,self.p1.depth)
+		P2 = getPositionVector(self.p2.longitude,self.p2.latitude,self.p2.depth)
+		P3 = getPositionVector(self.p3.longitude,self.p3.latitude,self.p3.depth)
+		
+		return (P1+P2+P3) / 3.0
+		
 def getPositionVector(longitude,latitude,depth):
 	"""
 	Returns the position vector (in Cartesian coordinates,km) of
@@ -327,3 +374,23 @@ def getPositionVector(longitude,latitude,depth):
 	y = (earth_radius - depth) * sin(theta) * sin(phi)
 	z = (earth_radius - depth) * cos(phi)
 	return numpy.array([x,y,z])
+	
+def getSphericalPositionVector(x,y,z):
+	"""
+	Returns the position vector (in Spherical coordinates,
+	latitude, longitude in degrees, and depth in km).
+	For the equation see:
+	http://mathworld.wolfram.com/SphericalCoordinates.html
+	x,y,z are supposed to be in km.
+	"""
+	earth_radius = 6371 # in km
+	numpy.seterr(divide='ignore')
+	radius = sqrt(x**2 + y**2 + z**2) # TODO: check that radius is not zero, in this case the spherical vector is not defined
+	theta = atan(numpy.divide(y,x))
+	phi = acos(z / radius) 
+	
+	longitude = degrees(theta)
+	latitude = 90.0 - degrees(phi)
+	depth = earth_radius - radius
+	
+	return numpy.array([longitude,latitude,depth])

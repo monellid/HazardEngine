@@ -48,8 +48,18 @@ class ProbEqkRupture:
 		and the surface projections of the points constituing
 		the rupture surface mesh.
 		Note that if the point lies inside the surface 
-		projection of the rupture boundary, the distance in zero.
+		projection of the rupture boundary, the distance is zero.
 		"""
+		g = Geod(ellps="sphere")
+		# extract locations at the boundary
+		point_list = []
+		# points on the top boundary
+		point_list.extend(self.rupture_surface[0,:].tolist())
+		# points on the last column
+		point_list.extend(self.rupture_surface[-1,1:-1].tolist())
+		# points on the bottom
+		point_list.extend(self.rupture_surface[-1,:].tolist())
+			
 		
 	def getDistanceX(self,point):
 		"""
