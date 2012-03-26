@@ -356,6 +356,106 @@ class Triangle:
 		
 		return (P1+P2+P3) / 3.0
 		
+class Rectangle:
+	"""
+	Class defining a rectangular plane
+	in 3D as defined by four geographical locations.
+	"""
+	def __init__(self,p1,p2,p3,p4):
+		"""
+		p1 = upper left corner
+		p2 = upper right corner
+		p3 = lower left corner
+		p4 = lower right corner
+		"""
+		self.p1 = p1
+		self.p2 = p2
+		self.p3 = p3
+		self.p4 = p4
+		
+	def getMinimumDistance(self,p):
+		"""
+		Computes minimum distance (in km) between point (p)
+		and rectangle.
+		The algorithm works as follows:
+		1) compute point projection on the plane
+		containing the rectangle
+		2) check if the point lies in or outside
+		the rectangle
+		3) compute minimum distance:
+			if inside the rectangle compute minimum distance as:
+				equation 13 in http://mathworld.wolfram.com/Point-PlaneDistance.html
+			if outside compute minimum distance in the following way:
+				i) find closest segment
+				ii) compute distance between point and closest segment
+		"""
+		
+		# find plane equation coefficients (equations 19-20 in http://mathworld.wolfram.com/Plane.html)
+		P1 = getPositionVector(self.p1.longitude,self.p1.latitude,self.p1.depth)
+		P2 = getPositionVector(self.p2.longitude,self.p2.latitude,self.p2.depth)
+		P3 = getPositionVector(self.p3.longitude,self.p3.latitude,self.p3.depth)
+		P4 = getPositionVector(self.p4.longitude,self.p4.latitude,self.p4.depth)
+		M = numpy.array([P1,P2,P3])
+		M1 = numpy.array(M)
+		M2 = numpy.array(M)
+		M3 = numpy.array(M)
+		M1[:,0] = numpy.ones(3)
+		M2[:,1] = numpy.ones(3)
+		M3[:,2] = numpy.ones(3)
+		A1 = numpy.linalg.det(M1)
+		A2 = numpy.linalg.det(M2)
+		A3 = numpy.linalg.det(M3)
+		A = numpy.linalg.det(M)
+		C = numpy.array([A1,A2,A3])
+		
+		# find projection of p onto plane containing the rectangle
+		P = getPositionVector(p.longitude,p.latitude,p.depth)
+		factor = (A - numpy.sum(C * P)) / numpy.sum(C**2)
+		P0 = P + C * factor
+		
+		# translate coordinate system origin (at the Earth center)
+		# to the rupture bottom left corner (that is P3)
+		# n 
+		P1n = P1 - P3
+		P2n = P2 - P3
+		P4n = P4 - P3
+		P0n = P0 - P3
+		P3n = P3 - P3
+		
+		# rotate coordinate system to have x axis aligned along rupture bottom edge
+		# and y axis aligned along rupture left edge
+		# for the equation see http://mathworld.wolfram.com/EulerAngles.html
+		vec1 = P4n / numpy.sqrt(numpy.sum(P4n * P4n))
+		vec1[2] = 0.0
+		vec2 = P1n / numpy.sqrt(numpy.sum(P1n * P1n))
+		vec2[2] = 0.0
+		phi = numpy.arccos(numpy.dot(numpy.array([1.0,0.0,0.0]),vec1))
+		theta = numpy.arccos(numpy.dot(P1n/numpy.sqrt(numpy.sum(P1n * P1n)),vec2))
+		psi = numpy.arccos(numpy.dot(vec1,P4n/numpy.sqrt(numpy.sum(P4n * P4n))))
+		rot = numpy.array([[cos(psi)*cos(phi)-cos(theta)*sin(phi)*sin(psi),cos(psi)*sin(phi)+cos(theta)*cos(phi)*sin(psi),sin(psi)*sin(theta)],
+							[-sin(psi)*cos(phi)-cos(theta)*sin(phi)*cos(psi),-sin(psi)*sin(phi)+cos(theta)*cos(phi)*cos(psi),cos(psi)*sin(theta)],
+							[sin(theta)*sin(phi),-sin(theta)*cos(phi),cos(theta)]])
+		P1n = numpy.dot(rot,P1n)
+		P2n = numpy.dot(rot,P2n)
+		P4n = numpy.dot(rot,P4n)
+		P0n = numpy.dot(rot,P0n)
+		
+		# check if point is inside or outside rectangle
+		inside = False
+		if P0n[0] >= P3n[0] and P0n[0] <= P4n[0] and P0n[1] >= P3n[1] and P0n[1] <= P1n[1]:
+			inside = True
+			
+		# compute minimum distance
+		if inside:
+			return numpy.sqrt(numpy.sum((P0 - P)**2))
+		else:
+			
+			# compute distance based on closest segment/point
+			if P0n[0] <= P1n[0] and P0n[1] >= P1n[1]:
+				# closest point is P1
+				return numpy.sqrt(numpy.sum((P0n - P1n)**2)) + numpy.sqrt(numpy.sum((P0 - P)**2))
+			
+		
 def getPositionVector(longitude,latitude,depth):
 	"""
 	Returns the position vector (in Cartesian coordinates,km) of
