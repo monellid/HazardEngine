@@ -223,7 +223,10 @@ class Line:
 			total_distance = sqrt(horizontal_distance**2 + vertical_distance**2)
 			# bearing angle: angle between line connecting p1 and p2
 			# and great circle line passing through p1 and with same azimuth
-			bearing_angle = acos(horizontal_distance / total_distance)
+			if total_distance == 0.0:
+				bearing_angle = 0.0
+			else:
+				bearing_angle = acos(horizontal_distance / total_distance)
 			horizontal_distance = offset * cos(bearing_angle)
 			vertical_distance = offset * sin(bearing_angle) * sign
 			p = p1.getPoint(horizontal_distance,vertical_distance,azimuth)
@@ -449,11 +452,32 @@ class Rectangle:
 		if inside:
 			return numpy.sqrt(numpy.sum((P0 - P)**2))
 		else:
-			
+			d = numpy.sqrt(numpy.sum((P0 - P)**2))
 			# compute distance based on closest segment/point
 			if P0n[0] <= P1n[0] and P0n[1] >= P1n[1]:
 				# closest point is P1
-				return numpy.sqrt(numpy.sum((P0n - P1n)**2)) + numpy.sqrt(numpy.sum((P0 - P)**2))
+				return numpy.sqrt(numpy.sum((P0n - P1n)**2)) + d
+			elif P0n[0] >= P1n[0] and P0n[0] <= P2n[0] and P0n[1] >= P1n[1]:
+				# closest segment is P1P2
+				return (P0n[1] - P1n[1]) + d
+			elif P0n[0] >= P2n[0] and P0n[1] >= P2n[1]:
+				# closest point is P2
+				return numpy.sqrt(numpy.sum((P0n - P2n)**2)) + d
+			elif P0n[0] >= P2n[0] and P0n[1] >= P4n[1] and P0n[1] <= P2n[1]:
+				# closest segment is P2P4
+				return (P0n[0] - P2n[0]) + d
+			elif P0n[0] >= P4n[0] and P0n[1] <= P4n[1]:
+				# closest point is P4
+				return numpy.sqrt(numpy.sum((P0n - P4n)**2)) + d
+			elif P0n[0] >= P3n[0] and P0n[0] <= P4n[0] and P0n[1] <= P3n[1]:
+				# closest segment is P3P4
+				return (P3n[1] - P0n[1]) + d
+			elif P0n[0] <= P3n[0] and P0n[1] <= P3n[1]:
+				# closest point is P3
+				return numpy.sqrt(numpy.sum((P0n - P3n)**2)) + d
+			else:
+				# closest segment is P3P1
+				return (P1n[0] - P0n[0]) + d
 			
 		
 def getPositionVector(longitude,latitude,depth):
